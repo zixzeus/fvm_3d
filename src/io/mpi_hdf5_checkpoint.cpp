@@ -22,19 +22,22 @@ void MPIHDFCheckpoint::save(
     hid_t file_id = create_parallel_file(filename, comm);
 
     // Get dimensions
-    int global_nx = decomposer.global_nx();
-    int global_ny = decomposer.global_ny();
-    int global_nz = decomposer.global_nz();
+    auto global_grid = decomposer.global_grid();
+    int global_nx = global_grid[0];
+    int global_ny = global_grid[1];
+    int global_nz = global_grid[2];
 
-    int local_nx = decomposer.local_nx();
-    int local_ny = decomposer.local_ny();
-    int local_nz = decomposer.local_nz();
+    auto local_cells = decomposer.local_interior_cells();
+    int local_nx = local_cells[0];
+    int local_ny = local_cells[1];
+    int local_nz = local_cells[2];
 
-    int offset_x = decomposer.local_offset_x();
-    int offset_y = decomposer.local_offset_y();
-    int offset_z = decomposer.local_offset_z();
+    auto idx_range = decomposer.global_index_range();
+    int offset_x = idx_range.i_min;
+    int offset_y = idx_range.j_min;
+    int offset_z = idx_range.k_min;
 
-    int num_vars = state.num_vars();
+    int num_vars = state.nvars();
 
     // Write grid metadata (root only)
     if (rank == 0) {
@@ -59,9 +62,10 @@ void MPIHDFCheckpoint::save(
     if (rank == 0) {
         hid_t decomp_group = H5Gcreate(file_id, "/decomposition", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
 
-        write_attribute(decomp_group, "px", decomposer.px());
-        write_attribute(decomp_group, "py", decomposer.py());
-        write_attribute(decomp_group, "pz", decomposer.pz());
+        auto proc_grid = decomposer.process_grid();
+        write_attribute(decomp_group, "px", proc_grid[0]);
+        write_attribute(decomp_group, "py", proc_grid[1]);
+        write_attribute(decomp_group, "pz", proc_grid[2]);
 
         int nprocs;
         MPI_Comm_size(comm, &nprocs);
@@ -168,27 +172,30 @@ bool MPIHDFCheckpoint::load(
     H5Gclose(meta_group);
 
     // Verify number of variables matches
-    if (num_vars != state.num_vars()) {
+    if (num_vars != state.nvars()) {
         if (rank == 0) {
             std::cerr << "Variable count mismatch: file has " << num_vars
-                      << ", state has " << state.num_vars() << "\n";
+                      << ", state has " << state.nvars() << "\n";
         }
         H5Fclose(file_id);
         return false;
     }
 
     // Get dimensions
-    int global_nx = decomposer.global_nx();
-    int global_ny = decomposer.global_ny();
-    int global_nz = decomposer.global_nz();
+    auto global_grid = decomposer.global_grid();
+    int global_nx = global_grid[0];
+    int global_ny = global_grid[1];
+    int global_nz = global_grid[2];
 
-    int local_nx = decomposer.local_nx();
-    int local_ny = decomposer.local_ny();
-    int local_nz = decomposer.local_nz();
+    auto local_cells = decomposer.local_interior_cells();
+    int local_nx = local_cells[0];
+    int local_ny = local_cells[1];
+    int local_nz = local_cells[2];
 
-    int offset_x = decomposer.local_offset_x();
-    int offset_y = decomposer.local_offset_y();
-    int offset_z = decomposer.local_offset_z();
+    auto idx_range = decomposer.global_index_range();
+    int offset_x = idx_range.i_min;
+    int offset_y = idx_range.j_min;
+    int offset_z = idx_range.k_min;
 
     // Variable names
     std::vector<std::string> var_names;

@@ -22,10 +22,10 @@ using namespace fvm3d;
 
 int main(int argc, char** argv) {
     // Initialize MPI
-    parallel::MPIContext mpi_context(argc, argv);
+    parallel::MPIGuard mpi_guard(argc, argv);
 
-    int rank = mpi_context.rank();
-    int size = mpi_context.size();
+    int rank = parallel::MPIUtils::rank();
+    int size = parallel::MPIUtils::size();
 
     if (rank == 0) {
         std::cout << "=== MPI-Parallel 3D Magnetic Reconnection ===\n";
@@ -91,13 +91,12 @@ int main(int argc, char** argv) {
         physics::AdvancedResistiveMHD3D::HarrisSheetConfig harris_config;
         harris_config.B0 = 1.0;           // Asymptotic field strength
         harris_config.n0 = 1.0;           // Background density
-        harris_config.T = 0.5;            // Temperature
-        harris_config.L = 0.5;            // Current sheet thickness
-        harris_config.plasma_beta = 1.0;  // Ratio of thermal to magnetic pressure
+        harris_config.p0 = 0.1;           // Reference pressure
+        harris_config.L_sheet = 0.5;      // Current sheet thickness
+        harris_config.beta = 1.0;         // Plasma beta
 
         // Perturbation to trigger reconnection
         harris_config.perturbation_amplitude = 0.03;  // 3% perturbation
-        harris_config.perturbation_mode = 1;          // m=1 mode
 
         // Resistivity model (position-dependent)
         physics::AdvancedResistiveMHD3D::ResistivityModel resistivity;
@@ -124,8 +123,8 @@ int main(int argc, char** argv) {
         if (rank == 0) {
             std::cout << "\nHarris sheet configuration:\n";
             std::cout << "  B0 = " << harris_config.B0 << "\n";
-            std::cout << "  Current sheet thickness L = " << harris_config.L << "\n";
-            std::cout << "  Plasma beta = " << harris_config.plasma_beta << "\n";
+            std::cout << "  Current sheet thickness L = " << harris_config.L_sheet << "\n";
+            std::cout << "  Plasma beta = " << harris_config.beta << "\n";
             std::cout << "  Background Rm = " << 1.0 / resistivity.eta0 << "\n";
             std::cout << "  Enhanced Rm = " << 1.0 / resistivity.eta1 << "\n";
             std::cout << "  Perturbation amplitude = " << harris_config.perturbation_amplitude << "\n\n";

@@ -21,10 +21,10 @@ using namespace fvm3d;
 
 int main(int argc, char** argv) {
     // Initialize MPI
-    parallel::MPIContext mpi_context(argc, argv);
+    parallel::MPIGuard mpi_guard(argc, argv);
 
-    int rank = mpi_context.rank();
-    int size = mpi_context.size();
+    int rank = parallel::MPIUtils::rank();
+    int size = parallel::MPIUtils::size();
 
     if (rank == 0) {
         std::cout << "=== MPI-Parallel 3D Blast Wave Simulation ===\n";

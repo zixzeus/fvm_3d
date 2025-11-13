@@ -120,13 +120,13 @@ public:
     /**
      * Get local state field (this rank's subdomain only).
      */
-    StateField3D& state() { return state_; }
-    const StateField3D& state() const { return state_; }
+    StateField3D& state() { return *state_; }
+    const StateField3D& state() const { return *state_; }
 
     /**
      * Get local grid information.
      */
-    const Grid3D& grid() const { return local_grid_; }
+    const Grid3D& grid() const { return *local_grid_; }
 
     /**
      * Get domain decomposer (for global/local index mapping).
@@ -167,12 +167,12 @@ private:
     std::unique_ptr<parallel::MPIHaloExchange> halo_exchange_;
     std::unique_ptr<parallel::MPIGlobalReduction> global_reduction_;
 
-    // Local grid and state
-    Grid3D local_grid_;               // This rank's subdomain
-    StateField3D state_;              // Local conservative variables
-    StateField3D rhs_;                // Local RHS
-    StateField3D u_temp_;             // Temporary storage
-    StateField3D flux_x_, flux_y_, flux_z_;  // Local fluxes
+    // Local grid and state (using unique_ptr for deferred initialization)
+    std::unique_ptr<Grid3D> local_grid_;               // This rank's subdomain
+    std::unique_ptr<StateField3D> state_;              // Local conservative variables
+    std::unique_ptr<StateField3D> rhs_;                // Local RHS
+    std::unique_ptr<StateField3D> u_temp_;             // Temporary storage
+    std::unique_ptr<StateField3D> flux_x_, flux_y_, flux_z_;  // Local fluxes
 
     // Physics and numerical schemes (polymorphic)
     std::unique_ptr<spatial::RiemannSolver> riemann_solver_;
