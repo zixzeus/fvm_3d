@@ -1,0 +1,8 @@
+/Users/ericzeus/PycharmProjects/algorithm_2-d_platform/fvm3d/build/CMakeFiles/fvm3d_lib.dir
+/Users/ericzeus/PycharmProjects/algorithm_2-d_platform/fvm3d/build/CMakeFiles/blast_wave_example.dir
+/Users/ericzeus/PycharmProjects/algorithm_2-d_platform/fvm3d/build/CMakeFiles/blast_wave_simulation.dir
+/Users/ericzeus/PycharmProjects/algorithm_2-d_platform/fvm3d/build/CMakeFiles/checkpoint_restart_example.dir
+/Users/ericzeus/PycharmProjects/algorithm_2-d_platform/fvm3d/build/CMakeFiles/test_hdf5_checkpoint.dir
+/Users/ericzeus/PycharmProjects/algorithm_2-d_platform/fvm3d/build/CMakeFiles/harris_sheet_3d.dir
+/Users/ericzeus/PycharmProjects/algorithm_2-d_platform/fvm3d/build/CMakeFiles/edit_cache.dir
+/Users/ericzeus/PycharmProjects/algorithm_2-d_platform/fvm3d/build/CMakeFiles/rebuild_cache.dir
