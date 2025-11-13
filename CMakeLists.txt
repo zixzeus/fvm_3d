@@ -64,6 +64,8 @@ set(BOUNDARY_SOURCES
 set(IO_SOURCES
     src/io/hdf5_checkpoint.cpp
     src/io/mpi_hdf5_checkpoint.cpp
+    src/io/vtk_writer.cpp
+    src/io/parallel_vtk_writer.cpp
 )
 
 set(PARALLEL_SOURCES
@@ -108,6 +110,12 @@ target_link_libraries(mpi_blast_wave_3d fvm3d_lib Eigen3::Eigen ${HDF5_C_LIBRARI
 
 add_executable(mpi_magnetic_reconnection examples/mpi_magnetic_reconnection.cpp)
 target_link_libraries(mpi_magnetic_reconnection fvm3d_lib Eigen3::Eigen ${HDF5_C_LIBRARIES} MPI::MPI_CXX)
+
+add_executable(vtk_visualization_example examples/vtk_visualization_example.cpp)
+target_link_libraries(vtk_visualization_example fvm3d_lib Eigen3::Eigen ${HDF5_C_LIBRARIES} MPI::MPI_CXX)
+
+add_executable(mpi_vtk_visualization_example examples/mpi_vtk_visualization_example.cpp)
+target_link_libraries(mpi_vtk_visualization_example fvm3d_lib Eigen3::Eigen ${HDF5_C_LIBRARIES} MPI::MPI_CXX)
 
 # Print build information
 message(STATUS "FVM3D Build Configuration:")
