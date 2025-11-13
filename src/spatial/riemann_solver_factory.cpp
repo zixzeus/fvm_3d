@@ -2,6 +2,8 @@
 #include "spatial/riemann_laxfriedrichs.hpp"
 #include "spatial/riemann_hll.hpp"
 #include "spatial/riemann_hllc.hpp"
+#include "spatial/riemann_hlld.hpp"
+#include "physics/resistive_mhd3d.hpp"
 #include <stdexcept>
 #include <iostream>
 #include <algorithm>
@@ -19,6 +21,10 @@ std::unique_ptr<RiemannSolver> RiemannSolverFactory::create(const std::string& n
         return std::make_unique<HLLSolver>();
     } else if (name_lower == "hllc") {
         return std::make_unique<HLLCSolver>();
+    } else if (name_lower == "hlld") {
+        // HLLD requires MHD physics object - create default with ideal MHD (eta=0)
+        auto mhd_physics = std::make_shared<physics::ResistiveMHD3D>(0.0);
+        return std::make_unique<HLLDSolver>(mhd_physics);
     } else {
         throw std::invalid_argument("Unknown Riemann solver: " + name);
     }
@@ -28,7 +34,8 @@ std::vector<std::string> RiemannSolverFactory::supported_solvers() {
     return {
         "laxfriedrichs (lf)",
         "hll",
-        "hllc"
+        "hllc",
+        "hlld"
     };
 }
 

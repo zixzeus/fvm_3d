@@ -14,6 +14,7 @@
 #include "core/mpi_fvm_solver3d.hpp"
 #include "physics/resistive_mhd3d_advanced.hpp"
 #include "parallel/mpi_utils.hpp"
+#include "io/parallel_vtk_writer.hpp"
 #include <iostream>
 #include <cmath>
 #include <Eigen/Dense>
@@ -42,9 +43,9 @@ int main(int argc, char** argv) {
     config.Lx = 4.0;
     config.Ly = 2.0;
     config.Lz = 2.0;
-    config.nx = 128;  // High resolution for reconnection
-    config.ny = 64;
-    config.nz = 64;
+    config.nx = 64;  // Moderate resolution for faster demo
+    config.ny = 32;
+    config.nz = 32;
     config.nghost = 2;
 
     // MPI decomposition (auto-determine)
@@ -57,11 +58,11 @@ int main(int argc, char** argv) {
     config.num_vars = 9;  // [rho, rho_u, rho_v, rho_w, E, Bx, By, Bz, psi]
 
     // Numerical schemes
-    config.riemann_solver = "hlld";  // HLLD for MHD
-    config.reconstruction = "muscl";
-    config.reconstruction_limiter = "minmod";  // More diffusive for stability
+    config.riemann_solver = "hlld";  // HLLD solver for MHD
+    config.reconstruction = "constant";  // Use constant for stability
+    config.reconstruction_limiter = "minmod";
     config.time_integrator = "rk2";
-    config.boundary_condition = "periodic";
+    config.boundary_condition = "transmissive";
 
     // Boundary conditions (periodic in X, transmissive in Y, Z)
     config.bc_x = true;   // Periodic in reconnection direction
@@ -70,10 +71,10 @@ int main(int argc, char** argv) {
 
     // Time stepping (more restrictive for MHD)
     config.cfl = 0.3;
-    config.t_final = 20.0;  // Long enough for reconnection to develop
-    config.num_steps = 10000;
-    config.output_interval = 20;
-    config.checkpoint_interval = 100;
+    config.t_final = 2.0;  // Short run for quick visualization
+    config.num_steps = 500;  // Limit steps for quick demo
+    config.output_interval = 50;
+    config.checkpoint_interval = 0;  // Disable checkpoints for demo
 
     // Verbosity
     config.verbose = 1;
@@ -128,24 +129,88 @@ int main(int argc, char** argv) {
             std::cout << "  Background Rm = " << 1.0 / resistivity.eta0 << "\n";
             std::cout << "  Enhanced Rm = " << 1.0 / resistivity.eta1 << "\n";
             std::cout << "  Perturbation amplitude = " << harris_config.perturbation_amplitude << "\n\n";
-            std::cout << "Running simulation...\n\n";
+            std::cout << "Running simulation with VTK output...\n\n";
         }
 
-        // Run simulation
-        solver.run();
+        // Export initial condition to VTK
+        io::export_parallel_state_to_vtk(
+            "reconnection_0000",
+            solver.state(),
+            solver.grid(),
+            solver.decomposer(),
+            9,  // num_vars (MHD with GLM)
+            "mhd",
+            0.0,
+            MPI_COMM_WORLD
+        );
+
+        if (rank == 0) {
+            std::cout << "Initial condition exported to reconnection_0000.pvti\n\n";
+        }
+
+        // Run simulation with periodic VTK output
+        int vtk_output_interval = 50;  // Export every 50 steps for quick demo
+        int vtk_count = 1;
+
+        while (solver.step_count() < config.num_steps && solver.time() < config.t_final) {
+            solver.step();
+
+            // Export to VTK periodically
+            if (solver.step_count() % vtk_output_interval == 0) {
+                char base_filename[256];
+                snprintf(base_filename, sizeof(base_filename), "reconnection_%04d", vtk_count);
+
+                io::export_parallel_state_to_vtk(
+                    base_filename,
+                    solver.state(),
+                    solver.grid(),
+                    solver.decomposer(),
+                    9,
+                    "mhd",
+                    solver.time(),
+                    MPI_COMM_WORLD
+                );
+
+                if (rank == 0) {
+                    std::cout << "  -> Exported VTK: " << base_filename << ".pvti (t=" << solver.time() << ")\n";
+                }
+                vtk_count++;
+            }
+        }
+
+        // Export final state
+        char final_base_filename[256];
+        snprintf(final_base_filename, sizeof(final_base_filename), "reconnection_%04d", vtk_count);
+        io::export_parallel_state_to_vtk(
+            final_base_filename,
+            solver.state(),
+            solver.grid(),
+            solver.decomposer(),
+            9,
+            "mhd",
+            solver.time(),
+            MPI_COMM_WORLD
+        );
 
         // Print final statistics
         if (rank == 0) {
             std::cout << "\n=== Simulation Complete ===\n";
             std::cout << "Final time: " << solver.time() << "\n";
-            std::cout << "Total steps: " << solver.step_count() << "\n\n";
+            std::cout << "Total steps: " << solver.step_count() << "\n";
+            std::cout << "VTK files: reconnection_*.pvti (" << (vtk_count + 1) << " timesteps)\n\n";
 
             std::cout << "Expected physics:\n";
             std::cout << "  - Magnetic reconnection at X-point (x=0, y=0)\n";
             std::cout << "  - Formation of magnetic islands\n";
             std::cout << "  - Out-of-plane current concentration\n";
             std::cout << "  - Plasma heating and acceleration\n";
-            std::cout << "  - Energy conversion: magnetic -> kinetic + thermal\n";
+            std::cout << "  - Energy conversion: magnetic -> kinetic + thermal\n\n";
+
+            std::cout << "To visualize:\n";
+            std::cout << "  1. Open ParaView\n";
+            std::cout << "  2. Load reconnection_*.pvti files\n";
+            std::cout << "  3. Visualize magnetic field lines, density, pressure\n";
+            std::cout << "  4. Look for X-point and magnetic island structures\n";
         }
 
         // TODO: Add energy diagnostics
