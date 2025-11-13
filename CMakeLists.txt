@@ -31,6 +31,7 @@ include_directories(include)
 set(CORE_SOURCES
     src/core/grid3d.cpp
     src/core/fvm_solver3d.cpp
+    src/core/mpi_fvm_solver3d.cpp
 )
 
 set(PHYSICS_SOURCES
@@ -62,6 +63,7 @@ set(BOUNDARY_SOURCES
 
 set(IO_SOURCES
     src/io/hdf5_checkpoint.cpp
+    src/io/mpi_hdf5_checkpoint.cpp
 )
 
 set(PARALLEL_SOURCES
@@ -100,8 +102,16 @@ target_link_libraries(test_hdf5_checkpoint fvm3d_lib Eigen3::Eigen ${HDF5_C_LIBR
 add_executable(harris_sheet_3d examples/harris_sheet_3d.cpp)
 target_link_libraries(harris_sheet_3d fvm3d_lib Eigen3::Eigen ${HDF5_C_LIBRARIES} MPI::MPI_CXX)
 
+# New MPI-parallel examples
+add_executable(mpi_blast_wave_3d examples/mpi_blast_wave_3d.cpp)
+target_link_libraries(mpi_blast_wave_3d fvm3d_lib Eigen3::Eigen ${HDF5_C_LIBRARIES} MPI::MPI_CXX)
+
+add_executable(mpi_magnetic_reconnection examples/mpi_magnetic_reconnection.cpp)
+target_link_libraries(mpi_magnetic_reconnection fvm3d_lib Eigen3::Eigen ${HDF5_C_LIBRARIES} MPI::MPI_CXX)
+
 # Print build information
 message(STATUS "FVM3D Build Configuration:")
 message(STATUS "  Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ Standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "  C++ Compiler: ${CMAKE_CXX_COMPILER}")
+message(STATUS "  MPI Support: Enabled")
