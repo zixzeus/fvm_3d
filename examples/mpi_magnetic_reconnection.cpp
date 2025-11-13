@@ -43,9 +43,9 @@ int main(int argc, char** argv) {
     config.Lx = 4.0;
     config.Ly = 2.0;
     config.Lz = 2.0;
-    config.nx = 64;  // Moderate resolution for faster demo
-    config.ny = 32;
-    config.nz = 32;
+    config.nx = 32;  // Small resolution for quick test
+    config.ny = 16;
+    config.nz = 16;
     config.nghost = 2;
 
     // MPI decomposition (auto-determine)
@@ -58,7 +58,7 @@ int main(int argc, char** argv) {
     config.num_vars = 9;  // [rho, rho_u, rho_v, rho_w, E, Bx, By, Bz, psi]
 
     // Numerical schemes
-    config.riemann_solver = "hlld";  // HLLD solver for MHD
+    config.riemann_solver = "hll";  // HLL solver for MHD (HLLD has interface issues with GLM-MHD)
     config.reconstruction = "constant";  // Use constant for stability
     config.reconstruction_limiter = "minmod";
     config.time_integrator = "rk2";
@@ -71,8 +71,8 @@ int main(int argc, char** argv) {
 
     // Time stepping (more restrictive for MHD)
     config.cfl = 0.3;
-    config.t_final = 2.0;  // Short run for quick visualization
-    config.num_steps = 500;  // Limit steps for quick demo
+    config.t_final = 1.0;  // Very short run for quick test
+    config.num_steps = 100;  // Limit steps for quick test
     config.output_interval = 50;
     config.checkpoint_interval = 0;  // Disable checkpoints for demo
 

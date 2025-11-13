@@ -47,7 +47,8 @@ Eigen::VectorXd HLLDSolver::solve(
     HLLDStates states = compute_hlld_states(U_L_rot, U_R_rot, speeds, direction);
 
     // Select appropriate state and compute flux
-    Eigen::VectorXd U_star(8);
+    // Use size from input (supports both 8-var MHD and 9-var GLM-MHD)
+    Eigen::VectorXd U_star(U_L.size());
     if (0.0 <= speeds.S_fL) {
         U_star = states.U_L;
     } else if (speeds.S_fL < 0.0 && 0.0 <= speeds.S_aL) {

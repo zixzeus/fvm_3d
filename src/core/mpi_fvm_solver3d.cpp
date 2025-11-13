@@ -134,6 +134,9 @@ void MPIFVMSolver3D::initialize(const InitFunction& init_func) {
     int ny_total = local_grid_->ny_total();
     int nz_total = local_grid_->nz_total();
 
+    std::cout << "Rank " << rank_ << ": Starting initialization with grid "
+              << nx_total << "x" << ny_total << "x" << nz_total << std::endl;
+
     // Set initial conditions at all local grid points (including ghosts)
     for (int i = 0; i < nx_total; i++) {
         for (int j = 0; j < ny_total; j++) {
@@ -152,8 +155,12 @@ void MPIFVMSolver3D::initialize(const InitFunction& init_func) {
         }
     }
 
+    std::cout << "Rank " << rank_ << ": Finished setting values, starting halo exchange" << std::endl;
+
     // Exchange halo data to fill ghost cells
     halo_exchange_->exchange(*state_);
+
+    std::cout << "Rank " << rank_ << ": Halo exchange complete" << std::endl;
 
     if (rank_ == 0 && config_.verbose > 0) {
         std::cout << "Initial conditions set on all ranks\n";
