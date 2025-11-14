@@ -58,8 +58,8 @@ int main(int argc, char** argv) {
     config.num_vars = 9;  // [rho, rho_u, rho_v, rho_w, E, Bx, By, Bz, psi]
 
     // Numerical schemes
-    config.riemann_solver = "hlld";  // HLLD solver for MHD (now self-contained)
-    config.reconstruction = "muscl";  // MUSCL for better stability (was "constant")
+    config.riemann_solver = "hlld";  // HLLD solver for MHD (MHD-specific)
+    config.reconstruction = "constant";  // First-order but stable
     config.reconstruction_limiter = "minmod";
     config.time_integrator = "rk2";
     config.boundary_condition = "transmissive";
@@ -69,10 +69,10 @@ int main(int argc, char** argv) {
     config.bc_y = false;  // Transmissive in current sheet direction
     config.bc_z = false;  // Transmissive in out-of-plane direction
 
-    // Time stepping (more restrictive for MHD)
-    config.cfl = 0.3;  // Conservative CFL for MHD (0.3 is typical for MUSCL)
-    config.t_final = 1.0;  // Very short run for quick test
-    config.num_steps = 100;  // Limit steps for quick test
+    // Time stepping (very conservative for stability)
+    config.cfl = 0.05;  // Very conservative CFL for stability
+    config.t_final = 0.5;  // Shorter run time
+    config.num_steps = 500;  // Increased due to smaller CFL
     config.output_interval = 50;
     config.checkpoint_interval = 0;  // Disable checkpoints for demo
 
@@ -92,12 +92,12 @@ int main(int argc, char** argv) {
         physics::AdvancedResistiveMHD3D::HarrisSheetConfig harris_config;
         harris_config.B0 = 1.0;           // Asymptotic field strength
         harris_config.n0 = 1.0;           // Background density
-        harris_config.p0 = 0.1;           // Reference pressure
-        harris_config.L_sheet = 0.5;      // Current sheet thickness
-        harris_config.beta = 1.0;         // Plasma beta
+        harris_config.p0 = 0.5;           // Reference pressure (higher for stability)
+        harris_config.L_sheet = 1.0;      // Current sheet thickness (thicker for stability)
+        harris_config.beta = 2.0;         // Plasma beta (higher for stability)
 
         // Perturbation to trigger reconnection
-        harris_config.perturbation_amplitude = 0.03;  // 3% perturbation
+        harris_config.perturbation_amplitude = 0.01;  // 1% perturbation (smaller for stability)
 
         // Resistivity model (position-dependent)
         physics::AdvancedResistiveMHD3D::ResistivityModel resistivity;

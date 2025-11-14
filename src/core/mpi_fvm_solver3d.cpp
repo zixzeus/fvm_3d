@@ -438,32 +438,29 @@ double MPIFVMSolver3D::compute_dt() {
                         double internal_energy = E - ke - me;
                         double p = (5.0/3.0 - 1.0) * internal_energy;  // gamma=5/3 for MHD
 
-                        if (p > 0) {
-                            // Fast magnetosonic speed: cf = sqrt(a² + B²/(μ₀*rho))
-                            double a_sq = (5.0/3.0) * p / rho;  // Sound speed squared
-                            double va_sq = B_sq / rho;          // Alfvén speed squared (μ₀=1)
-                            double cf = std::sqrt(a_sq + va_sq);
-
-                            double vel_mag = std::sqrt(u*u + v*v + w*w);
-                            max_speed = vel_mag + cf;
-
-                            // Debug: print first few values
-                            // if (debug_count < 3 && parallel::MPIUtils::is_root()) {
-                            //     std::cout << "Debug cell[" << i << "," << j << "," << k << "]: "
-                            //               << "rho=" << rho << ", E=" << E << ", B²=" << B_sq
-                            //               << ", p=" << p << ", cf=" << cf << ", max_speed=" << max_speed << std::endl;
-                            // }
-                            debug_count++;
-                        } else {
-                            // if (debug_count < 3 && parallel::MPIUtils::is_root()) {
-                            //     std::cout << "Debug cell[" << i << "," << j << "," << k << "]: "
-                            //               << "rho=" << rho << ", E=" << E << ", B_sq=" << B_sq
-                            //               << ", ke=" << ke << ", me=" << me
-                            //               << ", internal=" << internal_energy
-                            //               << ", p=" << p << " (NEGATIVE OR ZERO!)" << std::endl;
-                            // }
-                            debug_count++;
+                        // Apply pressure floor to prevent negative/zero pressure
+                        constexpr double p_floor = 1e-10;
+                        if (p <= 0) {
+                            static int warning_count = 0;
+                            if (warning_count < 5 && parallel::MPIUtils::is_root()) {
+                                std::cout << "WARNING: Negative pressure detected at cell[" << i << "," << j << "," << k << "]: "
+                                          << "rho=" << rho << ", E=" << E << ", B²=" << B_sq
+                                          << ", ke=" << ke << ", me=" << me
+                                          << ", internal=" << internal_energy
+                                          << ", p=" << p << " -> applying floor " << p_floor << std::endl;
+                                warning_count++;
+                            }
+                            p = p_floor;
                         }
+
+                        // Fast magnetosonic speed: cf = sqrt(a² + B²/(μ₀*rho))
+                        double a_sq = (5.0/3.0) * p / rho;  // Sound speed squared
+                        double va_sq = B_sq / rho;          // Alfvén speed squared (μ₀=1)
+                        double cf = std::sqrt(a_sq + va_sq);
+
+                        double vel_mag = std::sqrt(u*u + v*v + w*w);
+                        max_speed = vel_mag + cf;
+                        debug_count++;
                     } else {
                         // For Euler equations
                         double ke = 0.5 * (u*u + v*v + w*w);
@@ -485,7 +482,7 @@ double MPIFVMSolver3D::compute_dt() {
     }
 
     static int debug_call_count = 0;
-    if (parallel::MPIUtils::is_root() && debug_call_count < 10) {
+    if (parallel::MPIUtils::is_root() && debug_call_count < 100) {
         std::cout << "compute_dt call #" << debug_call_count << ": min_dt=" << min_dt
                   << ", max_wave_speed=" << max_wave_speed_global << std::endl;
         if (min_dt <= 0 || std::isnan(min_dt) || std::isinf(min_dt)) {
