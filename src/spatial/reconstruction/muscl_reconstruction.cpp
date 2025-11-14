@@ -33,42 +33,38 @@ void MUSCLReconstruction::reconstruct(
     U_R.resize(num_vars_);
 
     // Reconstruct each variable independently
+    // Standard MUSCL uses 3-point stencil for each side
     for (int var = 0; var < num_vars_; ++var) {
         // Get cell values based on direction
-        double U_minus2, U_minus1, U_center, U_plus1, U_plus2;
+        double U_minus1, U_center, U_plus1, U_plus2;
 
         if (direction == 0) {  // x-direction
-            U_minus2 = get_cell_value(U, var, i - 2, j, k);
             U_minus1 = get_cell_value(U, var, i - 1, j, k);
             U_center = get_cell_value(U, var, i, j, k);
             U_plus1 = get_cell_value(U, var, i + 1, j, k);
             U_plus2 = get_cell_value(U, var, i + 2, j, k);
         } else if (direction == 1) {  // y-direction
-            U_minus2 = get_cell_value(U, var, i, j - 2, k);
             U_minus1 = get_cell_value(U, var, i, j - 1, k);
             U_center = get_cell_value(U, var, i, j, k);
             U_plus1 = get_cell_value(U, var, i, j + 1, k);
             U_plus2 = get_cell_value(U, var, i, j + 2, k);
         } else {  // z-direction
-            U_minus2 = get_cell_value(U, var, i, j, k - 2);
             U_minus1 = get_cell_value(U, var, i, j, k - 1);
             U_center = get_cell_value(U, var, i, j, k);
             U_plus1 = get_cell_value(U, var, i, j, k + 1);
             U_plus2 = get_cell_value(U, var, i, j, k + 2);
         }
 
-        // Compute limited slopes
+        // Compute limited slopes for left and right cells
         double slope_L = compute_limited_slope(U_minus1, U_center, U_plus1);
         double slope_R = compute_limited_slope(U_center, U_plus1, U_plus2);
 
-        // MUSCL reconstruction with kappa parameter
-        // U_L at interface (i+1/2) extrapolated from cell i
-        U_L(var) = U_center + 0.5 * ((1.0 - kappa_) * (U_center - U_minus1) +
-                                     (1.0 + kappa_) * slope_L);
+        // MUSCL reconstruction at interface i+1/2
+        // U_L: extrapolate from cell i (using slope_L)
+        U_L(var) = U_center + 0.5 * slope_L;
 
-        // U_R at interface (i+1/2) extrapolated from cell i+1
-        U_R(var) = U_plus1 - 0.5 * ((1.0 + kappa_) * slope_R +
-                                     (1.0 - kappa_) * (U_plus2 - U_plus1));
+        // U_R: extrapolate from cell i+1 (using slope_R)
+        U_R(var) = U_plus1 - 0.5 * slope_R;
     }
 }
 
