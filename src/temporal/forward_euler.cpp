@@ -13,20 +13,8 @@ void ForwardEuler::step(
     rhs(U_current, *temp_rhs_);
 
     // U^(n+1) = U^n + dt * RHS(U^n)
-    int nvars = U_current.nvars();
-    int nx = U_current.nx();
-    int ny = U_current.ny();
-    int nz = U_current.nz();
-
-    for (int v = 0; v < nvars; v++) {
-        for (int i = 0; i < nx; i++) {
-            for (int j = 0; j < ny; j++) {
-                for (int k = 0; k < nz; k++) {
-                    U_current(v, i, j, k) += dt * (*temp_rhs_)(v, i, j, k);
-                }
-            }
-        }
-    }
+    // Vectorized in-place AXPY: U_current = U_current + dt * temp_rhs
+    U_current.add_scaled(dt, *temp_rhs_);
 }
 
 } // namespace fvm3d::temporal
