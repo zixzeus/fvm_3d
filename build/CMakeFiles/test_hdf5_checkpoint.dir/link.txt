@@ -1,1 +1,0 @@
-/usr/bin/c++ -g -O0 -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/test_hdf5_checkpoint.dir/examples/test_hdf5_checkpoint.cpp.o -o test_hdf5_checkpoint  -Wl,-rpath,/opt/homebrew/lib libfvm3d_lib.a /opt/homebrew/lib/libhdf5.310.5.1.dylib /opt/homebrew/Cellar/open-mpi/5.0.8/lib/libmpi.dylib
