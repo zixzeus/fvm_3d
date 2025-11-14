@@ -4,6 +4,7 @@
 #include <cmath>
 #include <algorithm>
 #include <functional>
+#include "physics_base.hpp"
 
 namespace fvm3d::physics {
 
@@ -22,6 +23,7 @@ namespace fvm3d::physics {
  *
  * Primitive variables (8):
  *   V = [ρ, u, v, w, p, Bx, By, Bz]
+ *   Note: ψ is not a primitive variable (it's a numerical artifact)
  *
  * Key differences from basic MHD:
  * 1. Resistivity varies with position: η = η(x,y,z)
@@ -30,7 +32,7 @@ namespace fvm3d::physics {
  * 4. Magnetic field evolution includes resistive terms
  * 5. Harris equilibrium support for initial conditions
  */
-class AdvancedResistiveMHD3D {
+class AdvancedResistiveMHD3D : public ConservationLaw {
 public:
     static constexpr int nvars = 9;          // Including GLM field ψ
     static constexpr double GAMMA = 5.0/3.0; // Adiabatic index (monatomic gas)
@@ -121,9 +123,61 @@ public:
     explicit AdvancedResistiveMHD3D(
         const ResistivityModel& res_model = ResistivityModel(),
         const GLMParameters& glm = GLMParameters()
-    ) : resistivity_model_(res_model), glm_params_(glm) {}
+    ) : ConservationLaw("AdvancedResistiveMHD3D", nvars, 3),
+        resistivity_model_(res_model), glm_params_(glm) {}
 
-    // ========== Variable Conversion ==========
+    // ========== PhysicsBase Interface Implementation ==========
+
+    /**
+     * Convert conservative to primitive variables (PhysicsBase interface).
+     * @param U: Conservative variables [ρ, ρu, ρv, ρw, E, Bx, By, Bz, ψ]
+     * @return V: Primitive variables [ρ, u, v, w, p, Bx, By, Bz]
+     * Note: ψ is dropped as it's not a primitive variable
+     */
+    Eigen::VectorXd conservative_to_primitive(const Eigen::VectorXd& U) const override {
+        double rho, u, v, w, p, Bx, By, Bz;
+        conservative_to_primitive(U, rho, u, v, w, p, Bx, By, Bz);
+
+        Eigen::VectorXd V(8);
+        V << rho, u, v, w, p, Bx, By, Bz;
+        return V;
+    }
+
+    /**
+     * Convert primitive to conservative variables (PhysicsBase interface).
+     * @param V: Primitive variables [ρ, u, v, w, p, Bx, By, Bz]
+     * @return U: Conservative variables [ρ, ρu, ρv, ρw, E, Bx, By, Bz, ψ]
+     * Note: ψ is set to 0.0 by default
+     */
+    Eigen::VectorXd primitive_to_conservative(const Eigen::VectorXd& V) const override {
+        Eigen::VectorXd U(nvars);
+        double psi = 0.0;  // Default GLM field value
+        primitive_to_conservative(V(0), V(1), V(2), V(3), V(4),
+                                 V(5), V(6), V(7), psi, U);
+        return U;
+    }
+
+    /**
+     * Compute flux in given direction (PhysicsBase interface).
+     * Note: Advanced MHD flux depends on position for resistivity.
+     * This method uses position (0,0,0) by default.
+     * For position-dependent flux, use flux_x/y/z directly.
+     */
+    Eigen::VectorXd compute_flux(const Eigen::VectorXd& U, int direction) const override {
+        // Use default position (0,0,0) for interface compatibility
+        switch (direction) {
+            case 0: return flux_x(U, 0.0, 0.0, 0.0);
+            case 1: return flux_y(U, 0.0, 0.0, 0.0);
+            case 2: return flux_z(U, 0.0, 0.0, 0.0);
+            default:
+                throw std::invalid_argument(
+                    "Invalid direction: " + std::to_string(direction) +
+                    " (must be 0, 1, or 2)"
+                );
+        }
+    }
+
+    // ========== Legacy Interface (for backwards compatibility) ==========
 
     /**
      * Convert conservative variables to primitive variables.
@@ -166,7 +220,7 @@ public:
     /**
      * Maximum wave speed including GLM wave.
      */
-    double max_wave_speed(const Eigen::VectorXd& U, int direction) const;
+    double max_wave_speed(const Eigen::VectorXd& U, int direction) const override;
 
     // ========== Flux Functions ==========
 

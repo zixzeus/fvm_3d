@@ -2,6 +2,7 @@
 
 #include <Eigen/Dense>
 #include <cmath>
+#include "physics_base.hpp"
 
 namespace fvm3d::physics {
 
@@ -10,12 +11,62 @@ namespace fvm3d::physics {
  * Conservative variables: U = [rho, rho_u, rho_v, rho_w, E]
  * Primitive variables: V = [rho, u, v, w, p]
  */
-class EulerEquations3D {
+class EulerEquations3D : public ConservationLaw {
 public:
     static constexpr int nvars = 5;
     static constexpr double GAMMA = 1.4;  // Adiabatic index for air
     static constexpr double RHO_FLOOR = 1e-10;
     static constexpr double P_FLOOR = 1e-11;
+
+    // ========== Constructor ==========
+
+    explicit EulerEquations3D()
+        : ConservationLaw("Euler3D", nvars, 3) {}
+
+    // ========== PhysicsBase Interface Implementation ==========
+
+    /**
+     * Convert conservative to primitive variables (PhysicsBase interface).
+     * @param U: Conservative variables [rho, rho_u, rho_v, rho_w, E]
+     * @return V: Primitive variables [rho, u, v, w, p]
+     */
+    Eigen::VectorXd conservative_to_primitive(const Eigen::VectorXd& U) const override {
+        double rho, u, v, w, p;
+        conservative_to_primitive(U, rho, u, v, w, p);
+
+        Eigen::VectorXd V(nvars);
+        V << rho, u, v, w, p;
+        return V;
+    }
+
+    /**
+     * Convert primitive to conservative variables (PhysicsBase interface).
+     * @param V: Primitive variables [rho, u, v, w, p]
+     * @return U: Conservative variables [rho, rho_u, rho_v, rho_w, E]
+     */
+    Eigen::VectorXd primitive_to_conservative(const Eigen::VectorXd& V) const override {
+        Eigen::VectorXd U(nvars);
+        primitive_to_conservative(V(0), V(1), V(2), V(3), V(4), U);
+        return U;
+    }
+
+    /**
+     * Compute flux in given direction (PhysicsBase interface).
+     */
+    Eigen::VectorXd compute_flux(const Eigen::VectorXd& U, int direction) const override {
+        switch (direction) {
+            case 0: return flux_x(U);
+            case 1: return flux_y(U);
+            case 2: return flux_z(U);
+            default:
+                throw std::invalid_argument(
+                    "Invalid direction: " + std::to_string(direction) +
+                    " (must be 0, 1, or 2)"
+                );
+        }
+    }
+
+    // ========== Legacy Interface (for backwards compatibility) ==========
 
     /**
      * Convert conservative variables to primitive variables.
@@ -70,7 +121,7 @@ public:
      * Compute maximum wave speed in a given direction.
      * Used for CFL condition.
      */
-    double max_wave_speed(const Eigen::VectorXd& U, int direction) const {
+    double max_wave_speed(const Eigen::VectorXd& U, int direction) const override {
         double rho, u, v, w, p;
         conservative_to_primitive(U, rho, u, v, w, p);
 

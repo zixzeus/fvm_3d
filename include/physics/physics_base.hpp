@@ -42,6 +42,36 @@ public:
     // ========== Core Physics Methods (Pure Virtual) ==========
 
     /**
+     * Convert conservative variables to primitive variables.
+     *
+     * Transforms from conserved quantities (e.g., momentum) to primitive
+     * quantities (e.g., velocity). The interpretation of primitive variables
+     * depends on the specific physics implementation.
+     *
+     * Examples:
+     * - Euler: [ρ, u, v, w, p]
+     * - MHD: [ρ, u, v, w, p, Bx, By, Bz]
+     *
+     * @param U: Conservative variable vector
+     * @return V: Primitive variable vector
+     */
+    virtual Eigen::VectorXd conservative_to_primitive(
+        const Eigen::VectorXd& U
+    ) const = 0;
+
+    /**
+     * Convert primitive variables to conservative variables.
+     *
+     * Inverse transformation of conservative_to_primitive.
+     *
+     * @param V: Primitive variable vector
+     * @return U: Conservative variable vector
+     */
+    virtual Eigen::VectorXd primitive_to_conservative(
+        const Eigen::VectorXd& V
+    ) const = 0;
+
+    /**
      * Compute flux in a given direction.
      *
      * This is the primary flux computation method. Implementations should
