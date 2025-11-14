@@ -1,7 +1,8 @@
 #include "core/fvm_solver3d.hpp"
 #include "spatial/riemann_solvers/riemann_solver_factory.hpp"
 #include "temporal/time_integrator_factory.hpp"
-#include "spatial/reconstruction.hpp"
+#include "spatial/reconstruction/reconstruction_factory.hpp"
+#include "spatial/reconstruction/reconstruction_base.hpp"
 #include "boundary/periodic_bc.hpp"
 #include "boundary/reflective_bc.hpp"
 #include "boundary/transmissive_bc.hpp"
@@ -38,6 +39,7 @@ FVMSolver3D::FVMSolver3D(const FVMSolverConfig& config)
     // Initialize reconstruction scheme
     reconstruction_ = spatial::ReconstructionFactory::create(
         config.reconstruction,
+        5,  // num_vars for Euler equations
         config.reconstruction_limiter
     );
 
@@ -419,55 +421,9 @@ void FVMSolver3D::reconstruct_1d(
     Eigen::VectorXd& U_L,
     Eigen::VectorXd& U_R
 ) {
-    U_L.resize(5);
-    U_R.resize(5);
-
-    if (direction == 0) {
-        // Reconstruct at interface between cells i and i+1
-        for (int v = 0; v < 5; v++) {
-            double U_LL = state(v, i - 1, j, k);
-            double U_L_val = state(v, i, j, k);
-            double U_C = state(v, i + 1, j, k);
-            double U_R_val = state(v, i + 2, j, k);
-            double U_RR = state(v, i + 3, j, k);
-
-            double recon_L, recon_R;
-            reconstruction_->reconstruct(U_LL, U_L_val, U_C, U_R_val, U_RR, recon_L, recon_R);
-
-            U_L(v) = recon_R;  // Right side of cell i
-            U_R(v) = recon_L;  // Left side of cell i+1
-        }
-    } else if (direction == 1) {
-        // Reconstruct at interface between cells j and j+1
-        for (int v = 0; v < 5; v++) {
-            double U_LL = state(v, i, j - 1, k);
-            double U_L_val = state(v, i, j, k);
-            double U_C = state(v, i, j + 1, k);
-            double U_R_val = state(v, i, j + 2, k);
-            double U_RR = state(v, i, j + 3, k);
-
-            double recon_L, recon_R;
-            reconstruction_->reconstruct(U_LL, U_L_val, U_C, U_R_val, U_RR, recon_L, recon_R);
-
-            U_L(v) = recon_R;
-            U_R(v) = recon_L;
-        }
-    } else {
-        // Reconstruct at interface between cells k and k+1
-        for (int v = 0; v < 5; v++) {
-            double U_LL = state(v, i, j, k - 1);
-            double U_L_val = state(v, i, j, k);
-            double U_C = state(v, i, j, k + 1);
-            double U_R_val = state(v, i, j, k + 2);
-            double U_RR = state(v, i, j, k + 3);
-
-            double recon_L, recon_R;
-            reconstruction_->reconstruct(U_LL, U_L_val, U_C, U_R_val, U_RR, recon_L, recon_R);
-
-            U_L(v) = recon_R;
-            U_R(v) = recon_L;
-        }
-    }
+    // Use new reconstruction API that operates directly on Field3D
+    // Reconstructs left and right states at interface (i+1/2, j, k) for direction=0
+    reconstruction_->reconstruct(state, i, j, k, direction, U_L, U_R);
 }
 
 void FVMSolver3D::save_checkpoint(

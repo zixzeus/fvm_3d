@@ -46,7 +46,6 @@ set(SPATIAL_SOURCES
     src/spatial/riemann_solvers/riemann_hllc.cpp
     src/spatial/riemann_solvers/riemann_hlld.cpp
     src/spatial/riemann_solvers/riemann_solver_factory.cpp
-    src/spatial/reconstruction.cpp
     src/spatial/flux_calculation/flux_calculator_factory.cpp
     src/spatial/reconstruction/reconstruction_base.cpp
     src/spatial/reconstruction/constant_reconstruction.cpp

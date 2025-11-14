@@ -1,7 +1,8 @@
 #include "core/mpi_fvm_solver3d.hpp"
 #include "spatial/riemann_solvers/riemann_solver_factory.hpp"
 #include "temporal/time_integrator_factory.hpp"
-#include "spatial/reconstruction.hpp"
+#include "spatial/reconstruction/reconstruction_factory.hpp"
+#include "spatial/reconstruction/reconstruction_base.hpp"
 #include "boundary/periodic_bc.hpp"
 #include "boundary/reflective_bc.hpp"
 #include "boundary/transmissive_bc.hpp"
@@ -87,6 +88,7 @@ MPIFVMSolver3D::MPIFVMSolver3D(const MPIFVMSolverConfig& config)
     // Initialize reconstruction scheme
     reconstruction_ = spatial::ReconstructionFactory::create(
         config.reconstruction,
+        config.num_vars,
         config.reconstruction_limiter
     );
 
@@ -379,37 +381,9 @@ void MPIFVMSolver3D::reconstruct_1d(
     Eigen::VectorXd& U_L,
     Eigen::VectorXd& U_R
 ) {
-    // Extract stencil values for each variable
-    for (int v = 0; v < config_.num_vars; v++) {
-        double Um2, Um1, U0, Up1, Up2;
-
-        if (direction == 0) {
-            Um2 = state(v, i-2, j, k);
-            Um1 = state(v, i-1, j, k);
-            U0 = state(v, i, j, k);
-            Up1 = state(v, i+1, j, k);
-            Up2 = state(v, i+2, j, k);
-        } else if (direction == 1) {
-            Um2 = state(v, i, j-2, k);
-            Um1 = state(v, i, j-1, k);
-            U0 = state(v, i, j, k);
-            Up1 = state(v, i, j+1, k);
-            Up2 = state(v, i, j+2, k);
-        } else {
-            Um2 = state(v, i, j, k-2);
-            Um1 = state(v, i, j, k-1);
-            U0 = state(v, i, j, k);
-            Up1 = state(v, i, j, k+1);
-            Up2 = state(v, i, j, k+2);
-        }
-
-        // Reconstruct using scalar interface
-        double U_L_scalar, U_R_scalar;
-        reconstruction_->reconstruct(Um2, Um1, U0, Up1, Up2, U_L_scalar, U_R_scalar);
-
-        U_L(v) = U_L_scalar;
-        U_R(v) = U_R_scalar;
-    }
+    // Use new reconstruction API that operates directly on Field3D
+    // Reconstructs left and right states at interface (i+1/2, j, k) for direction=0
+    reconstruction_->reconstruct(state, i, j, k, direction, U_L, U_R);
 }
 
 void MPIFVMSolver3D::apply_boundary_conditions() {

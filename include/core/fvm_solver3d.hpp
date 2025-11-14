@@ -5,7 +5,7 @@
 #include "physics/euler3d.hpp"
 #include "spatial/riemann_solvers/riemann_solver.hpp"
 #include "temporal/time_integrator.hpp"
-#include "spatial/reconstruction.hpp"
+#include "spatial/reconstruction/reconstruction_base.hpp"
 #include "boundary/boundary_condition.hpp"
 #include <memory>
 #include <string>
@@ -134,7 +134,7 @@ private:
     // Physics and numerical schemes
     std::unique_ptr<physics::EulerEquations3D> physics_;
     std::unique_ptr<spatial::RiemannSolver> riemann_solver_;
-    std::unique_ptr<spatial::ReconstructionScheme> reconstruction_;
+    std::unique_ptr<spatial::ReconstructionMethod> reconstruction_;
     std::unique_ptr<temporal::TimeIntegrator> time_integrator_;
     std::unique_ptr<boundary::BoundaryCondition> boundary_condition_;
 

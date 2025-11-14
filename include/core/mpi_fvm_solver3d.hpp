@@ -7,7 +7,7 @@
 #include "physics/resistive_mhd3d_advanced.hpp"
 #include "spatial/riemann_solvers/riemann_solver.hpp"
 #include "temporal/time_integrator.hpp"
-#include "spatial/reconstruction.hpp"
+#include "spatial/reconstruction/reconstruction_base.hpp"
 #include "boundary/boundary_condition.hpp"
 #include "parallel/mpi_utils.hpp"
 #include "parallel/mpi_domain_decomposer.hpp"
@@ -176,7 +176,7 @@ private:
 
     // Physics and numerical schemes (polymorphic)
     std::unique_ptr<spatial::RiemannSolver> riemann_solver_;
-    std::unique_ptr<spatial::ReconstructionScheme> reconstruction_;
+    std::unique_ptr<spatial::ReconstructionMethod> reconstruction_;
     std::unique_ptr<temporal::TimeIntegrator> time_integrator_;
     std::unique_ptr<boundary::BoundaryCondition> boundary_condition_;
 
