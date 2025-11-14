@@ -1,4 +1,4 @@
-#include "spatial/riemann_hllc.hpp"
+#include "spatial/riemann_solvers/riemann_hllc.hpp"
 #include <algorithm>
 #include <cmath>
 

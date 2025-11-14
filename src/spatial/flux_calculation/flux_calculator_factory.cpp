@@ -1,4 +1,8 @@
 #include "spatial/flux_calculation/flux_calculator_factory.hpp"
+#include "spatial/riemann_solvers/lax_friedrichs.hpp"
+#include "spatial/riemann_solvers/riemann_solver_factory.hpp"
+#include "physics/euler3d.hpp"
+#include "physics/resistive_mhd3d_advanced.hpp"
 #include <algorithm>
 #include <iostream>
 
@@ -14,25 +18,60 @@ std::unique_ptr<FluxCalculator> FluxCalculatorFactory::create(
     std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(),
                    [](unsigned char c) { return std::tolower(c); });
 
-    // For now, all flux calculators are Riemann solver-based
-    // Create Riemann solver using existing factory
-    auto riemann_solver = RiemannSolverFactory::create(name, physics_type, num_vars);
+    // Create physics object based on physics_type
+    std::shared_ptr<physics::PhysicsBase> physics;
 
-    // Wrap in adapter to provide FluxCalculator interface
-    return std::make_unique<RiemannFluxAdapter>(std::move(riemann_solver));
+    if (physics_type == "euler") {
+        physics = std::make_shared<physics::EulerEquations3D>();
+    } else if (physics_type == "mhd_advanced" || physics_type == "mhd") {
+        // Advanced resistive MHD with GLM divergence cleaning
+        physics::AdvancedResistiveMHD3D::ResistivityModel resistivity;
+        resistivity.eta0 = 1e-3;               // Background resistivity
+        resistivity.eta1 = 0.01667;            // Enhanced resistivity
+        resistivity.localization_scale = 1.0;  // Localization width
+
+        physics::AdvancedResistiveMHD3D::GLMParameters glm(0.2, 0.2);  // ch=0.2, cr=0.2
+
+        physics = std::make_shared<physics::AdvancedResistiveMHD3D>(resistivity, glm);
+    } else {
+        throw std::invalid_argument("Unknown physics type: " + physics_type);
+    }
+
+    // LaxFriedrichs is a native FluxCalculator
+    if (name_lower == "laxfriedrichs" || name_lower == "lf") {
+        return std::make_unique<LaxFriedrichsFlux>(physics);
+    }
+
+    // Other Riemann solvers: create via RiemannSolverFactory and wrap in adapter
+    try {
+        auto riemann_solver = RiemannSolverFactory::create(name, physics_type, num_vars);
+        return std::make_unique<RiemannFluxAdapter>(std::move(riemann_solver));
+    } catch (const std::invalid_argument& e) {
+        // Re-throw with updated message
+        throw std::invalid_argument("Unknown flux calculator: " + name);
+    }
 
     // Future: add non-Riemann methods here
     // if (name_lower == "central") {
-    //     return std::make_unique<CentralFluxScheme>(physics_type);
+    //     return std::make_unique<CentralFluxScheme>(physics);
     // } else if (name_lower == "ausm") {
-    //     return std::make_unique<AUSMFluxCalculator>(physics_type);
+    //     return std::make_unique<AUSMFluxCalculator>(physics);
     // }
 }
 
 std::vector<std::string> FluxCalculatorFactory::supported_calculators() {
-    // Currently delegates to Riemann solver factory
+    std::vector<std::string> calculators;
+
+    // Add LaxFriedrichs (native FluxCalculator)
+    calculators.push_back("laxfriedrichs (lf)");
+
+    // Add other Riemann solvers
+    auto riemann_solvers = RiemannSolverFactory::supported_solvers();
+    calculators.insert(calculators.end(), riemann_solvers.begin(), riemann_solvers.end());
+
     // Future: add additional non-Riemann methods
-    return RiemannSolverFactory::supported_solvers();
+
+    return calculators;
 }
 
 bool FluxCalculatorFactory::is_available(const std::string& name) {

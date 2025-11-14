@@ -1,27 +1,28 @@
-#include "spatial/riemann_laxfriedrichs.hpp"
+#include "spatial/riemann_solvers/lax_friedrichs.hpp"
 #include <algorithm>
 #include <cmath>
 
 namespace fvm3d::spatial {
 
-LaxFriedrichsSolver::LaxFriedrichsSolver(const std::shared_ptr<physics::PhysicsBase>& physics)
-    : physics_(physics) {
+LaxFriedrichsFlux::LaxFriedrichsFlux(std::shared_ptr<physics::PhysicsBase> physics)
+    : FluxCalculator("Lax-Friedrichs", "riemann"), physics_(physics) {
     if (!physics_) {
-        throw std::invalid_argument("LaxFriedrichsSolver: physics object cannot be null");
+        throw std::invalid_argument("LaxFriedrichsFlux: physics object cannot be null");
     }
 }
 
-Eigen::VectorXd LaxFriedrichsSolver::solve(
+Eigen::VectorXd LaxFriedrichsFlux::compute_flux(
     const Eigen::VectorXd& U_L,
     const Eigen::VectorXd& U_R,
+    const physics::PhysicsBase& physics,
     int direction
 ) const {
-    // Compute fluxes using physics object
-    Eigen::VectorXd F_L = physics_->compute_flux(U_L, direction);
-    Eigen::VectorXd F_R = physics_->compute_flux(U_R, direction);
+    // Compute fluxes using provided physics object
+    Eigen::VectorXd F_L = physics.compute_flux(U_L, direction);
+    Eigen::VectorXd F_R = physics.compute_flux(U_R, direction);
 
     // Compute maximum wave speed
-    double lambda = max_wave_speed(U_L, U_R, direction);
+    double lambda = compute_max_wave_speed(U_L, U_R, physics, direction);
 
     // Lax-Friedrichs flux: 0.5 * (F_L + F_R) - 0.5 * lambda * (U_R - U_L)
     Eigen::VectorXd flux = 0.5 * (F_L + F_R) - 0.5 * lambda * (U_R - U_L);
@@ -29,14 +30,15 @@ Eigen::VectorXd LaxFriedrichsSolver::solve(
     return flux;
 }
 
-double LaxFriedrichsSolver::max_wave_speed(
+double LaxFriedrichsFlux::compute_max_wave_speed(
     const Eigen::VectorXd& U_L,
     const Eigen::VectorXd& U_R,
+    const physics::PhysicsBase& physics,
     int direction
 ) const {
-    // Convert to primitive variables using physics object
-    Eigen::VectorXd V_L = physics_->conservative_to_primitive(U_L);
-    Eigen::VectorXd V_R = physics_->conservative_to_primitive(U_R);
+    // Convert to primitive variables using provided physics object
+    Eigen::VectorXd V_L = physics.conservative_to_primitive(U_L);
+    Eigen::VectorXd V_R = physics.conservative_to_primitive(U_R);
 
     // Extract primitive variables (common to both Euler and MHD)
     double rho_L = V_L(0);
@@ -51,8 +53,10 @@ double LaxFriedrichsSolver::max_wave_speed(
     double w_R = V_R(3);
     double p_R = V_R(4);
 
-    double a_L = sound_speed(rho_L, p_L);
-    double a_R = sound_speed(rho_R, p_R);
+    // Compute sound speeds
+    const double gamma = 5.0/3.0;  // Adiabatic index
+    double a_L = std::sqrt(gamma * p_L / rho_L);
+    double a_R = std::sqrt(gamma * p_R / rho_R);
 
     // Select normal velocity based on direction
     double u_normal_L = (direction == 0) ? u_L : (direction == 1) ? v_L : w_L;

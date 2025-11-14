@@ -1,6 +1,6 @@
 #pragma once
 
-#include "spatial/riemann_solver.hpp"
+#include "spatial/riemann_solvers/riemann_solver.hpp"
 #include "physics/resistive_mhd3d_advanced.hpp"
 #include <Eigen/Dense>
 #include <memory>

@@ -41,11 +41,11 @@ set(PHYSICS_SOURCES
 )
 
 set(SPATIAL_SOURCES
-    src/spatial/riemann_hll.cpp
-    src/spatial/riemann_hllc.cpp
-    src/spatial/riemann_laxfriedrichs.cpp
-    src/spatial/riemann_hlld.cpp
-    src/spatial/riemann_solver_factory.cpp
+    src/spatial/riemann_solvers/lax_friedrichs.cpp
+    src/spatial/riemann_solvers/riemann_hll.cpp
+    src/spatial/riemann_solvers/riemann_hllc.cpp
+    src/spatial/riemann_solvers/riemann_hlld.cpp
+    src/spatial/riemann_solvers/riemann_solver_factory.cpp
     src/spatial/reconstruction.cpp
     src/spatial/flux_calculation/flux_calculator_factory.cpp
     src/spatial/reconstruction/reconstruction_base.cpp

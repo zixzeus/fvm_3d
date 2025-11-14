@@ -2,7 +2,7 @@
 
 #include "flux_calculator_base.hpp"
 #include "riemann_flux_adapter.hpp"
-#include "spatial/riemann_solver_factory.hpp"
+#include "spatial/riemann_solvers/riemann_solver_factory.hpp"
 #include <memory>
 #include <string>
 #include <vector>

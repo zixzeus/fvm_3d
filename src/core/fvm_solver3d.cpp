@@ -1,5 +1,5 @@
 #include "core/fvm_solver3d.hpp"
-#include "spatial/riemann_solver_factory.hpp"
+#include "spatial/riemann_solvers/riemann_solver_factory.hpp"
 #include "spatial/reconstruction.hpp"
 #include "temporal/time_integrator_factory.hpp"
 #include "boundary/periodic_bc.hpp"

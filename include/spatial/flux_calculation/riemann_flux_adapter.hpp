@@ -1,7 +1,7 @@
 #pragma once
 
 #include "flux_calculator_base.hpp"
-#include "spatial/riemann_solver.hpp"
+#include "spatial/riemann_solvers/riemann_solver.hpp"
 #include <memory>
 
 namespace fvm3d::spatial {

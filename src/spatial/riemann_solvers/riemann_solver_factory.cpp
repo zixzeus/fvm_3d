@@ -1,8 +1,7 @@
-#include "spatial/riemann_solver_factory.hpp"
-#include "spatial/riemann_laxfriedrichs.hpp"
-#include "spatial/riemann_hll.hpp"
-#include "spatial/riemann_hllc.hpp"
-#include "spatial/riemann_hlld.hpp"
+#include "spatial/riemann_solvers/riemann_solver_factory.hpp"
+#include "spatial/riemann_solvers/riemann_hll.hpp"
+#include "spatial/riemann_solvers/riemann_hllc.hpp"
+#include "spatial/riemann_solvers/riemann_hlld.hpp"
 #include "physics/euler3d.hpp"
 #include "physics/resistive_mhd3d_advanced.hpp"
 #include <stdexcept>
@@ -42,8 +41,9 @@ std::unique_ptr<RiemannSolver> RiemannSolverFactory::create(
     }
 
     // Create Riemann solver with physics object
+    // Note: LaxFriedrichs is now a FluxCalculator, use FluxCalculatorFactory instead
     if (name_lower == "laxfriedrichs" || name_lower == "lf") {
-        return std::make_unique<LaxFriedrichsSolver>(physics);
+        throw std::invalid_argument("LaxFriedrichs is now a FluxCalculator. Use FluxCalculatorFactory::create() instead.");
     } else if (name_lower == "hll") {
         return std::make_unique<HLLSolver>(physics);
     } else if (name_lower == "hllc") {
@@ -62,10 +62,10 @@ std::unique_ptr<RiemannSolver> RiemannSolverFactory::create(
 
 std::vector<std::string> RiemannSolverFactory::supported_solvers() {
     return {
-        "laxfriedrichs (lf)",
         "hll",
         "hllc",
         "hlld"
+        // Note: laxfriedrichs is now a FluxCalculator
     };
 }
 
@@ -74,6 +74,7 @@ void RiemannSolverFactory::print_available_solvers() {
     for (const auto& solver : supported_solvers()) {
         std::cout << "  - " << solver << "\n";
     }
+    std::cout << "\nNote: LaxFriedrichs is now available via FluxCalculatorFactory\n";
 }
 
 } // namespace fvm3d::spatial
