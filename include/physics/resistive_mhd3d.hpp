@@ -1,5 +1,6 @@
 #pragma once
 
+#include "physics/mhd_base.hpp"
 #include <Eigen/Dense>
 #include <cmath>
 #include <algorithm>
@@ -34,7 +35,7 @@ namespace fvm3d::physics {
  *   mu0        : permeability (set to 1.0 in normalized units)
  *   eta        : resistivity coefficient (0 for ideal MHD)
  */
-class ResistiveMHD3D {
+class ResistiveMHD3D : public MHDBase {
 public:
     static constexpr int nvars = 8;
     static constexpr double GAMMA = 1.4;        // Adiabatic index
@@ -48,7 +49,7 @@ public:
      * @param resistivity: Ohmic resistivity eta (0 for ideal MHD)
      */
     explicit ResistiveMHD3D(double resistivity = 0.0)
-        : eta_(resistivity) {}
+        : MHDBase("ResistiveMHD3D", nvars), eta_(resistivity) {}
 
     /**
      * Convert conservative variables to primitive variables.
@@ -59,7 +60,7 @@ public:
         const Eigen::VectorXd& U,
         double& rho, double& u, double& v, double& w, double& p,
         double& Bx, double& By, double& Bz
-    ) const {
+    ) const override {
         // Density with floor
         rho = std::max(U(0), RHO_FLOOR);
 
@@ -91,7 +92,7 @@ public:
         double rho, double u, double v, double w, double p,
         double Bx, double By, double Bz,
         Eigen::VectorXd& U
-    ) const {
+    ) const override {
         rho = std::max(rho, RHO_FLOOR);
         p = std::max(p, P_FLOOR);
 
@@ -117,7 +118,7 @@ public:
      * Compute sound speed (gas sound speed, not Alfvén).
      * a = sqrt(gamma * p / rho)
      */
-    double sound_speed(double rho, double p) const {
+    double sound_speed(double rho, double p) const override {
         rho = std::max(rho, RHO_FLOOR);
         p = std::max(p, P_FLOOR);
         return std::sqrt(GAMMA * p / rho);
@@ -127,7 +128,7 @@ public:
      * Compute Alfvén speed in a given direction.
      * va = |B_dir| / sqrt(mu0 * rho)
      */
-    double alfven_speed(double B_component, double rho) const {
+    double alfven_speed(double B_component, double rho) const override {
         rho = std::max(rho, RHO_FLOOR);
         return std::abs(B_component) / std::sqrt(MU0 * rho);
     }
@@ -136,7 +137,7 @@ public:
      * Compute fast magnetosonic speed.
      * cf = sqrt(a^2 + (B_x^2 + B_y^2 + B_z^2)/(mu0*rho))
      */
-    double fast_speed(double rho, double p, double Bx, double By, double Bz) const {
+    double fast_speed(double rho, double p, double Bx, double By, double Bz) const override {
         rho = std::max(rho, RHO_FLOOR);
         p = std::max(p, P_FLOOR);
         double a = sound_speed(rho, p);
@@ -150,7 +151,7 @@ public:
      * For MHD, this includes acoustic waves and fast magnetosonic waves.
      * @param direction: 0=X, 1=Y, 2=Z
      */
-    double max_wave_speed(const Eigen::VectorXd& U, int direction) const {
+    double max_wave_speed(const Eigen::VectorXd& U, int direction) const override {
         double rho, u, v, w, p, Bx, By, Bz;
         conservative_to_primitive(U, rho, u, v, w, p, Bx, By, Bz);
 
@@ -167,17 +168,17 @@ public:
      * F = [rho*u, rho*u*u+p_tot-Bx^2/mu0, rho*u*v-Bx*By/mu0, rho*u*w-Bx*Bz/mu0,
      *      (E+p_tot)*u - Bx*(u*Bx+v*By+w*Bz)/mu0, 0, v*Bx-u*By, w*Bx-u*Bz]
      */
-    Eigen::VectorXd flux_x(const Eigen::VectorXd& U) const;
+    Eigen::VectorXd flux_x(const Eigen::VectorXd& U) const override;
 
     /**
      * Compute flux in Y direction.
      */
-    Eigen::VectorXd flux_y(const Eigen::VectorXd& U) const;
+    Eigen::VectorXd flux_y(const Eigen::VectorXd& U) const override;
 
     /**
      * Compute flux in Z direction.
      */
-    Eigen::VectorXd flux_z(const Eigen::VectorXd& U) const;
+    Eigen::VectorXd flux_z(const Eigen::VectorXd& U) const override;
 
     /**
      * Compute resistive dissipation source term.
