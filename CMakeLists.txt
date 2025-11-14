@@ -47,6 +47,11 @@ set(SPATIAL_SOURCES
     src/spatial/riemann_hlld.cpp
     src/spatial/riemann_solver_factory.cpp
     src/spatial/reconstruction.cpp
+    src/spatial/flux_calculation/flux_calculator_factory.cpp
+    src/spatial/reconstruction/reconstruction_base.cpp
+    src/spatial/reconstruction/constant_reconstruction.cpp
+    src/spatial/reconstruction/muscl_reconstruction.cpp
+    src/spatial/reconstruction/reconstruction_factory.cpp
 )
 
 set(TEMPORAL_SOURCES
