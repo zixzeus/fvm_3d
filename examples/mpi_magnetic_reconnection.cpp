@@ -58,7 +58,7 @@ int main(int argc, char** argv) {
     config.num_vars = 9;  // [rho, rho_u, rho_v, rho_w, E, Bx, By, Bz, psi]
 
     // Numerical schemes
-    config.riemann_solver = "hll";  // HLL solver for MHD (HLLD has interface issues with GLM-MHD)
+    config.riemann_solver = "hlld";  // HLLD solver for MHD (now self-contained)
     config.reconstruction = "constant";  // Use constant for stability
     config.reconstruction_limiter = "minmod";
     config.time_integrator = "rk2";
@@ -70,7 +70,7 @@ int main(int argc, char** argv) {
     config.bc_z = false;  // Transmissive in out-of-plane direction
 
     // Time stepping (more restrictive for MHD)
-    config.cfl = 0.3;
+    config.cfl = 0.1;  // Very conservative CFL for stability
     config.t_final = 1.0;  // Very short run for quick test
     config.num_steps = 100;  // Limit steps for quick test
     config.output_interval = 50;

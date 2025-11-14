@@ -3,10 +3,11 @@
 #include "spatial/riemann_hll.hpp"
 #include "spatial/riemann_hllc.hpp"
 #include "spatial/riemann_hlld.hpp"
-#include "physics/resistive_mhd3d.hpp"
+#include "physics/resistive_mhd3d_advanced.hpp"
 #include <stdexcept>
 #include <iostream>
 #include <algorithm>
+#include <memory>
 
 namespace fvm3d::spatial {
 
@@ -22,8 +23,15 @@ std::unique_ptr<RiemannSolver> RiemannSolverFactory::create(const std::string& n
     } else if (name_lower == "hllc") {
         return std::make_unique<HLLCSolver>();
     } else if (name_lower == "hlld") {
-        // HLLD requires MHD physics object - create default with ideal MHD (eta=0)
-        auto mhd_physics = std::make_shared<physics::ResistiveMHD3D>(0.0);
+        // HLLD solver with AdvancedResistiveMHD3D physics (gamma=5/3, GLM ch=0.2, cr=0.2)
+        physics::AdvancedResistiveMHD3D::ResistivityModel resistivity;
+        resistivity.eta0 = 1e-3;
+        resistivity.eta1 = 0.01667;
+        resistivity.localization_scale = 1.0;
+
+        physics::AdvancedResistiveMHD3D::GLMParameters glm(0.2, 0.2);
+
+        auto mhd_physics = std::make_shared<physics::AdvancedResistiveMHD3D>(resistivity, glm);
         return std::make_unique<HLLDSolver>(mhd_physics);
     } else {
         throw std::invalid_argument("Unknown Riemann solver: " + name);

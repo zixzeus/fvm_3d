@@ -6,6 +6,7 @@
 #include "boundary/reflective_bc.hpp"
 #include "boundary/transmissive_bc.hpp"
 #include "io/mpi_hdf5_checkpoint.hpp"
+#include "parallel/mpi_utils.hpp"
 #include <iostream>
 #include <iomanip>
 #include <algorithm>
@@ -396,6 +397,8 @@ double MPIFVMSolver3D::compute_dt() {
     double dz = geom.dz;
 
     double min_dt = 1e10;
+    double max_wave_speed_global = 0.0;  // Debug: track maximum wave speed found
+    int debug_count = 0;  // Debug counter
 
     // Compute local minimum timestep
     for (int i = ng; i < nx + ng; i++) {
@@ -407,13 +410,11 @@ double MPIFVMSolver3D::compute_dt() {
                     U(v) = (*state_)(v, i, j, k);
                 }
 
-                // Compute maximum wave speed (this is physics-dependent)
-                // For now, use a simple estimate based on density and energy
+                // Compute maximum wave speed (physics-dependent)
                 double rho = U(0);
                 double max_speed = 1.0;  // Placeholder
 
                 if (rho > 1e-10) {
-                    // Simple estimate for compressible flow
                     double rho_u = U(1);
                     double rho_v = U(2);
                     double rho_w = U(3);
@@ -422,20 +423,75 @@ double MPIFVMSolver3D::compute_dt() {
                     double u = rho_u / rho;
                     double v = rho_v / rho;
                     double w = rho_w / rho;
-                    double ke = 0.5 * (u*u + v*v + w*w);
-                    double p = (1.4 - 1.0) * (E - rho * ke);
 
-                    if (p > 0) {
-                        double cs = std::sqrt(1.4 * p / rho);
-                        double vel_mag = std::sqrt(u*u + v*v + w*w);
-                        max_speed = vel_mag + cs;
+                    // For MHD physics (8 or 9 variables)
+                    if (config_.num_vars >= 8) {
+                        // Extract magnetic field components
+                        double Bx = U(5);
+                        double By = U(6);
+                        double Bz = U(7);
+                        double B_sq = Bx*Bx + By*By + Bz*Bz;
+
+                        // Compute pressure for MHD
+                        double ke = 0.5 * rho * (u*u + v*v + w*w);
+                        double me = 0.5 * B_sq;  // Magnetic energy (μ₀=1)
+                        double internal_energy = E - ke - me;
+                        double p = (5.0/3.0 - 1.0) * internal_energy;  // gamma=5/3 for MHD
+
+                        if (p > 0) {
+                            // Fast magnetosonic speed: cf = sqrt(a² + B²/(μ₀*rho))
+                            double a_sq = (5.0/3.0) * p / rho;  // Sound speed squared
+                            double va_sq = B_sq / rho;          // Alfvén speed squared (μ₀=1)
+                            double cf = std::sqrt(a_sq + va_sq);
+
+                            double vel_mag = std::sqrt(u*u + v*v + w*w);
+                            max_speed = vel_mag + cf;
+
+                            // Debug: print first few values
+                            // if (debug_count < 3 && parallel::MPIUtils::is_root()) {
+                            //     std::cout << "Debug cell[" << i << "," << j << "," << k << "]: "
+                            //               << "rho=" << rho << ", E=" << E << ", B²=" << B_sq
+                            //               << ", p=" << p << ", cf=" << cf << ", max_speed=" << max_speed << std::endl;
+                            // }
+                            debug_count++;
+                        } else {
+                            // if (debug_count < 3 && parallel::MPIUtils::is_root()) {
+                            //     std::cout << "Debug cell[" << i << "," << j << "," << k << "]: "
+                            //               << "rho=" << rho << ", E=" << E << ", B_sq=" << B_sq
+                            //               << ", ke=" << ke << ", me=" << me
+                            //               << ", internal=" << internal_energy
+                            //               << ", p=" << p << " (NEGATIVE OR ZERO!)" << std::endl;
+                            // }
+                            debug_count++;
+                        }
+                    } else {
+                        // For Euler equations
+                        double ke = 0.5 * (u*u + v*v + w*w);
+                        double p = (1.4 - 1.0) * (E - rho * ke);
+
+                        if (p > 0) {
+                            double cs = std::sqrt(1.4 * p / rho);
+                            double vel_mag = std::sqrt(u*u + v*v + w*w);
+                            max_speed = vel_mag + cs;
+                        }
                     }
                 }
 
+                max_wave_speed_global = std::max(max_wave_speed_global, max_speed);
                 double dt_cell = std::min({dx, dy, dz}) / (max_speed + 1e-10);
                 min_dt = std::min(min_dt, dt_cell);
             }
         }
+    }
+
+    static int debug_call_count = 0;
+    if (parallel::MPIUtils::is_root() && debug_call_count < 10) {
+        std::cout << "compute_dt call #" << debug_call_count << ": min_dt=" << min_dt
+                  << ", max_wave_speed=" << max_wave_speed_global << std::endl;
+        if (min_dt <= 0 || std::isnan(min_dt) || std::isinf(min_dt)) {
+            std::cout << "  ERROR: Invalid min_dt detected!" << std::endl;
+        }
+        debug_call_count++;
     }
 
     // Global reduction to get minimum across all ranks

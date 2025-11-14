@@ -139,9 +139,10 @@ Eigen::VectorXd AdvancedResistiveMHD3D::flux_x(
     F(6) = v * Bx - u * By;
     F(7) = w * Bx - u * Bz;
 
-    // GLM wave propagation
+    // GLM wave propagation: F(ψ) = ch² * Bn
     double psi = (U.size() > 8) ? U(8) : 0.0;
-    F(8) = glm_params_.ch * Bx;
+    F(5) = psi;  // F(Bn) = ψ (replaces the 0.0)
+    F(8) = glm_params_.ch * glm_params_.ch * Bx;
 
     return F;
 }
@@ -170,12 +171,12 @@ Eigen::VectorXd AdvancedResistiveMHD3D::flux_y(
 
     // Magnetic field fluxes
     G(5) = u * By - v * Bx;
-    G(6) = 0.0;  // ∇·B component
     G(7) = w * By - v * Bz;
 
-    // GLM wave
+    // GLM wave propagation: F(ψ) = ch² * Bn
     double psi = (U.size() > 8) ? U(8) : 0.0;
-    G(8) = glm_params_.ch * By;
+    G(6) = psi;  // F(Bn) = ψ (replaces the 0.0)
+    G(8) = glm_params_.ch * glm_params_.ch * By;
 
     return G;
 }
@@ -203,13 +204,13 @@ Eigen::VectorXd AdvancedResistiveMHD3D::flux_z(
     H(4) = (U(4) + p_total) * w - Bz * u_dot_B / MU0;
 
     // Magnetic field fluxes
-    H(5) = v * Bz - w * By;
-    H(6) = w * Bx - u * Bz;
-    H(7) = 0.0;  // ∇·B component
+    H(5) = u * Bz - w * Bx;
+    H(6) = v * Bz - w * By;
 
-    // GLM wave
+    // GLM wave propagation: F(ψ) = ch² * Bn
     double psi = (U.size() > 8) ? U(8) : 0.0;
-    H(8) = glm_params_.ch * Bz;
+    H(7) = psi;  // F(Bn) = ψ (replaces the 0.0)
+    H(8) = glm_params_.ch * glm_params_.ch * Bz;
 
     return H;
 }
@@ -398,9 +399,14 @@ Eigen::VectorXd AdvancedResistiveMHD3D::harris_sheet_initial(
     double By = 0.0;
     double Bz = 0.0;
 
-    // Pressure balance: p = p₀ - (B₀²/(2μ₀))·tanh²(y/L)
+    // Pressure balance for Harris sheet:
+    // Total pressure p_tot = p + B²/(2μ₀) must be constant
+    // At y=0: Bx=0, so p(0) = p_tot
+    // For beta (plasma beta): beta = 2μ₀p(0)/B₀²
+    // Therefore: p_tot = beta·B₀²/(2μ₀)
+    double p_total = harris.beta * harris.B0 * harris.B0 / (2.0 * MU0);
     double B_pressure = 0.5 * Bx * Bx / MU0;
-    double p = harris.p0 - B_pressure;
+    double p = p_total - B_pressure;
     p = std::max(p, P_FLOOR);
 
     // Add small perturbations to trigger reconnection (m=1 mode)
