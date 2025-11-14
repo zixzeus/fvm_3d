@@ -1,4 +1,4 @@
-#include "spatial/riemann_solvers/lax_friedrichs.hpp"
+#include "spatial/flux_calculation/lax_friedrichs.hpp"
 #include <algorithm>
 #include <cmath>
 

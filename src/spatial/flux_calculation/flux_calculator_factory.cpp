@@ -1,5 +1,5 @@
 #include "spatial/flux_calculation/flux_calculator_factory.hpp"
-#include "spatial/riemann_solvers/lax_friedrichs.hpp"
+#include "spatial/flux_calculation/lax_friedrichs.hpp"
 #include "spatial/riemann_solvers/riemann_solver_factory.hpp"
 #include "physics/euler3d.hpp"
 #include "physics/resistive_mhd3d_advanced.hpp"

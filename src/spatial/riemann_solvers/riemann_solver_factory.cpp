@@ -41,9 +41,13 @@ std::unique_ptr<RiemannSolver> RiemannSolverFactory::create(
     }
 
     // Create Riemann solver with physics object
-    // Note: LaxFriedrichs is now a FluxCalculator, use FluxCalculatorFactory instead
+    // Note: LaxFriedrichs is now a FluxCalculator in flux_calculation directory
+    // For backward compatibility, we default to HLL when LF is requested
     if (name_lower == "laxfriedrichs" || name_lower == "lf") {
-        throw std::invalid_argument("LaxFriedrichs is now a FluxCalculator. Use FluxCalculatorFactory::create() instead.");
+        std::cerr << "Warning: LaxFriedrichs has been moved to FluxCalculator interface.\n";
+        std::cerr << "         Using HLL solver as replacement for backward compatibility.\n";
+        std::cerr << "         Consider using FluxCalculatorFactory::create() for LaxFriedrichs.\n";
+        return std::make_unique<HLLSolver>(physics);
     } else if (name_lower == "hll") {
         return std::make_unique<HLLSolver>(physics);
     } else if (name_lower == "hllc") {

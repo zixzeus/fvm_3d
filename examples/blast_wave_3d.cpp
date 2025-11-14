@@ -3,7 +3,7 @@
 #include "physics/euler3d.hpp"
 #include "spatial/riemann_solvers/riemann_hll.hpp"
 #include "spatial/riemann_solvers/riemann_hllc.hpp"
-#include "spatial/riemann_solvers/lax_friedrichs.hpp"
+#include "spatial/flux_calculation/lax_friedrichs.hpp"
 #include "spatial/riemann_solvers/riemann_solver_factory.hpp"
 #include "temporal/forward_euler.hpp"
 #include "boundary/periodic_bc.hpp"
