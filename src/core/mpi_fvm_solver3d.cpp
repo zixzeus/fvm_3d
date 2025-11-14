@@ -82,7 +82,7 @@ MPIFVMSolver3D::MPIFVMSolver3D(const MPIFVMSolverConfig& config)
     global_reduction_ = std::make_unique<parallel::MPIGlobalReduction>();
 
     // Initialize Riemann solver
-    riemann_solver_ = spatial::RiemannSolverFactory::create(config.riemann_solver);
+    riemann_solver_ = spatial::RiemannSolverFactory::create(config.riemann_solver, config.physics_type, config.num_vars);
 
     // Initialize reconstruction scheme
     reconstruction_ = spatial::ReconstructionFactory::create(

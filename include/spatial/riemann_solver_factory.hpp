@@ -15,13 +15,19 @@ class RiemannSolverFactory {
 public:
     /**
      * Create a Riemann solver by name.
-     * Supported solvers: "laxfriedrichs" (or "lf"), "hll", "hllc"
+     * Supported solvers: "laxfriedrichs" (or "lf"), "hll", "hllc", "hlld"
      *
      * @param name: name of the solver
+     * @param physics_type: type of physics ("euler" or "mhd_advanced")
+     * @param num_vars: number of variables (5 for Euler, 9 for MHD)
      * @return: unique_ptr to a RiemannSolver instance
-     * @throws std::invalid_argument if name is unknown
+     * @throws std::invalid_argument if name or physics_type is unknown
      */
-    static std::unique_ptr<RiemannSolver> create(const std::string& name);
+    static std::unique_ptr<RiemannSolver> create(
+        const std::string& name,
+        const std::string& physics_type = "euler",
+        int num_vars = 5
+    );
 
     /**
      * Get list of supported Riemann solvers.

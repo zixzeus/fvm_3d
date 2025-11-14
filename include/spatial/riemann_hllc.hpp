@@ -1,6 +1,8 @@
 #pragma once
 
 #include "riemann_solver.hpp"
+#include "physics/physics_base.hpp"
+#include <memory>
 
 namespace fvm3d::spatial {
 
@@ -9,11 +11,20 @@ namespace fvm3d::spatial {
  * Improves upon HLL by properly capturing contact discontinuities.
  * Uses three-wave model: left shock, contact discontinuity, right shock.
  *
+ * Now uses PhysicsBase interface for generality - works with any physics
+ * (Euler, MHD, etc.) by delegating flux calculation to the physics object.
+ *
  * More accurate than HLL for problems with strong contact discontinuities
  * (e.g., different densities with same velocity and pressure).
  */
 class HLLCSolver : public RiemannSolver {
 public:
+    /**
+     * Constructor with physics object.
+     * @param physics: Physics equation system (Euler, MHD, etc.)
+     */
+    explicit HLLCSolver(const std::shared_ptr<physics::PhysicsBase>& physics);
+
     Eigen::VectorXd solve(
         const Eigen::VectorXd& U_L,
         const Eigen::VectorXd& U_R,
@@ -29,6 +40,8 @@ public:
     std::string name() const override { return "HLLC"; }
 
 private:
+    std::shared_ptr<physics::PhysicsBase> physics_;  // Physics object for flux calculation
+
     /**
      * Estimate left and right wave speeds.
      */
@@ -59,11 +72,6 @@ private:
     double estimate_p_middle(
         const Eigen::VectorXd& U_L,
         const Eigen::VectorXd& U_R,
-        int direction
-    ) const;
-
-    Eigen::VectorXd compute_flux(
-        const Eigen::VectorXd& U,
         int direction
     ) const;
 

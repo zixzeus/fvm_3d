@@ -1,6 +1,8 @@
 #pragma once
 
 #include "riemann_solver.hpp"
+#include "physics/physics_base.hpp"
+#include <memory>
 
 namespace fvm3d::spatial {
 
@@ -12,11 +14,20 @@ namespace fvm3d::spatial {
  *
  * where lambda = max(|u| + a) is the maximum wave speed.
  *
- * Advantages: Simple, always convergent
+ * Now uses PhysicsBase interface for generality - works with any physics
+ * (Euler, MHD, etc.) by delegating flux calculation to the physics object.
+ *
+ * Advantages: Simple, always convergent, physics-agnostic
  * Disadvantages: High numerical dissipation
  */
 class LaxFriedrichsSolver : public RiemannSolver {
 public:
+    /**
+     * Constructor with physics object.
+     * @param physics: Physics equation system (Euler, MHD, etc.)
+     */
+    explicit LaxFriedrichsSolver(const std::shared_ptr<physics::PhysicsBase>& physics);
+
     Eigen::VectorXd solve(
         const Eigen::VectorXd& U_L,
         const Eigen::VectorXd& U_R,
@@ -32,13 +43,7 @@ public:
     std::string name() const override { return "Lax-Friedrichs"; }
 
 private:
-    /**
-     * Compute flux in a given direction.
-     */
-    Eigen::VectorXd compute_flux(
-        const Eigen::VectorXd& U,
-        int direction
-    ) const;
+    std::shared_ptr<physics::PhysicsBase> physics_;  // Physics object for flux calculation
 };
 
 } // namespace fvm3d::spatial

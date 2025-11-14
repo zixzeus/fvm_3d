@@ -33,7 +33,7 @@ FVMSolver3D::FVMSolver3D(const FVMSolverConfig& config)
     physics_ = std::make_unique<physics::EulerEquations3D>();
 
     // Initialize Riemann solver
-    riemann_solver_ = spatial::RiemannSolverFactory::create(config.riemann_solver);
+    riemann_solver_ = spatial::RiemannSolverFactory::create(config.riemann_solver, "euler", 5);  // FVMSolver uses Euler physics by default
 
     // Initialize reconstruction scheme
     reconstruction_ = spatial::ReconstructionFactory::create(

@@ -4,6 +4,13 @@
 
 namespace fvm3d::spatial {
 
+HLLSolver::HLLSolver(const std::shared_ptr<physics::PhysicsBase>& physics)
+    : physics_(physics) {
+    if (!physics_) {
+        throw std::invalid_argument("HLLSolver: physics object cannot be null");
+    }
+}
+
 Eigen::VectorXd HLLSolver::solve(
     const Eigen::VectorXd& U_L,
     const Eigen::VectorXd& U_R,
@@ -12,8 +19,9 @@ Eigen::VectorXd HLLSolver::solve(
     double S_L = estimate_s_left(U_L, U_R, direction);
     double S_R = estimate_s_right(U_L, U_R, direction);
 
-    Eigen::VectorXd F_L = compute_flux(U_L, direction);
-    Eigen::VectorXd F_R = compute_flux(U_R, direction);
+    // Compute fluxes using physics object
+    Eigen::VectorXd F_L = physics_->compute_flux(U_L, direction);
+    Eigen::VectorXd F_R = physics_->compute_flux(U_R, direction);
 
     if (S_R <= S_L) {
         return 0.5 * (F_L + F_R);
@@ -45,11 +53,22 @@ double HLLSolver::estimate_s_left(
     const Eigen::VectorXd& U_R,
     int direction
 ) const {
-    double rho_L, u_L, v_L, w_L, p_L;
-    double rho_R, u_R, v_R, w_R, p_R;
+    // Convert to primitive variables using physics object
+    Eigen::VectorXd V_L = physics_->conservative_to_primitive(U_L);
+    Eigen::VectorXd V_R = physics_->conservative_to_primitive(U_R);
 
-    conservative_to_primitive(U_L, rho_L, u_L, v_L, w_L, p_L);
-    conservative_to_primitive(U_R, rho_R, u_R, v_R, w_R, p_R);
+    // Extract primitive variables (common to both Euler and MHD)
+    double rho_L = V_L(0);
+    double u_L = V_L(1);
+    double v_L = V_L(2);
+    double w_L = V_L(3);
+    double p_L = V_L(4);
+
+    double rho_R = V_R(0);
+    double u_R = V_R(1);
+    double v_R = V_R(2);
+    double w_R = V_R(3);
+    double p_R = V_R(4);
 
     double a_L = sound_speed(rho_L, p_L);
     double a_R = sound_speed(rho_R, p_R);
@@ -65,11 +84,22 @@ double HLLSolver::estimate_s_right(
     const Eigen::VectorXd& U_R,
     int direction
 ) const {
-    double rho_L, u_L, v_L, w_L, p_L;
-    double rho_R, u_R, v_R, w_R, p_R;
+    // Convert to primitive variables using physics object
+    Eigen::VectorXd V_L = physics_->conservative_to_primitive(U_L);
+    Eigen::VectorXd V_R = physics_->conservative_to_primitive(U_R);
 
-    conservative_to_primitive(U_L, rho_L, u_L, v_L, w_L, p_L);
-    conservative_to_primitive(U_R, rho_R, u_R, v_R, w_R, p_R);
+    // Extract primitive variables (common to both Euler and MHD)
+    double rho_L = V_L(0);
+    double u_L = V_L(1);
+    double v_L = V_L(2);
+    double w_L = V_L(3);
+    double p_L = V_L(4);
+
+    double rho_R = V_R(0);
+    double u_R = V_R(1);
+    double v_R = V_R(2);
+    double w_R = V_R(3);
+    double p_R = V_R(4);
 
     double a_L = sound_speed(rho_L, p_L);
     double a_R = sound_speed(rho_R, p_R);
@@ -78,38 +108,6 @@ double HLLSolver::estimate_s_right(
     double u_normal_R = (direction == 0) ? u_R : (direction == 1) ? v_R : w_R;
 
     return std::max(u_normal_L + a_L, u_normal_R + a_R);
-}
-
-Eigen::VectorXd HLLSolver::compute_flux(
-    const Eigen::VectorXd& U,
-    int direction
-) const {
-    double rho, u, v, w, p;
-    conservative_to_primitive(U, rho, u, v, w, p);
-
-    Eigen::VectorXd flux(5);
-
-    if (direction == 0) {
-        flux(0) = rho * u;
-        flux(1) = rho * u * u + p;
-        flux(2) = rho * u * v;
-        flux(3) = rho * u * w;
-        flux(4) = (U(4) + p) * u;
-    } else if (direction == 1) {
-        flux(0) = rho * v;
-        flux(1) = rho * v * u;
-        flux(2) = rho * v * v + p;
-        flux(3) = rho * v * w;
-        flux(4) = (U(4) + p) * v;
-    } else {
-        flux(0) = rho * w;
-        flux(1) = rho * w * u;
-        flux(2) = rho * w * v;
-        flux(3) = rho * w * w + p;
-        flux(4) = (U(4) + p) * w;
-    }
-
-    return flux;
 }
 
 } // namespace fvm3d::spatial
