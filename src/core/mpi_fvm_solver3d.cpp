@@ -267,35 +267,36 @@ void MPIFVMSolver3D::compute_rhs() {
 }
 
 void MPIFVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out) {
-    int nx = local_grid_->nx_local();
-    int ny = local_grid_->ny_local();
-    int nz = local_grid_->nz_local();
-    int ng = local_grid_->nghost();
+    const int nx = local_grid_->nx_local();
+    const int ny = local_grid_->ny_local();
+    const int nz = local_grid_->nz_local();
+    const int ng = local_grid_->nghost();
+    const int nvars = config_.num_vars;
+
+    // Optimization: reuse Eigen vectors to reduce allocations
+    Eigen::VectorXd U_L(nvars), U_R(nvars), F(nvars);
 
     // Loop over interior cell interfaces (need ng+1 interfaces for ng interior cells)
-    int imax = (direction == 0) ? nx + 1 : nx;
-    int jmax = (direction == 1) ? ny + 1 : ny;
-    int kmax = (direction == 2) ? nz + 1 : nz;
+    const int imax = (direction == 0) ? nx + 1 : nx;
+    const int jmax = (direction == 1) ? ny + 1 : ny;
+    const int kmax = (direction == 2) ? nz + 1 : nz;
 
     for (int i = 0; i <= imax; i++) {
         for (int j = 0; j <= jmax; j++) {
             for (int k = 0; k <= kmax; k++) {
                 // Interface indices (in total grid including ghosts)
-                int ii = i + ng;
-                int jj = j + ng;
-                int kk = k + ng;
+                const int ii = i + ng;
+                const int jj = j + ng;
+                const int kk = k + ng;
 
                 // Reconstruct left and right states
-                Eigen::VectorXd U_L(config_.num_vars);
-                Eigen::VectorXd U_R(config_.num_vars);
-
                 reconstruct_1d(*state_, direction, ii, jj, kk, U_L, U_R);
 
                 // Compute Riemann flux
-                Eigen::VectorXd F = riemann_solver_->solve(U_L, U_R, direction);
+                F = riemann_solver_->solve(U_L, U_R, direction);
 
-                // Store flux
-                for (int v = 0; v < config_.num_vars; v++) {
+                // Store flux - this could benefit from vectorization
+                for (int v = 0; v < nvars; v++) {
                     flux_out(v, ii, jj, kk) = F(v);
                 }
             }
@@ -304,37 +305,67 @@ void MPIFVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out) {
 }
 
 void MPIFVMSolver3D::add_flux_divergence(const StateField3D& flux, int direction) {
-    int nx = local_grid_->nx_local();
-    int ny = local_grid_->ny_local();
-    int nz = local_grid_->nz_local();
-    int ng = local_grid_->nghost();
+    const int nx = local_grid_->nx_local();
+    const int ny = local_grid_->ny_local();
+    const int nz = local_grid_->nz_local();
+    const int ng = local_grid_->nghost();
+    const int nvars = config_.num_vars;
 
     const auto& geom = local_grid_->geometry();
-    double dx = geom.dx;
-    double dy = geom.dy;
-    double dz = geom.dz;
-    double inv_dx = (direction == 0) ? -1.0 / dx : ((direction == 1) ? -1.0 / dy : -1.0 / dz);
+    const double dx = geom.dx;
+    const double dy = geom.dy;
+    const double dz = geom.dz;
+    const double inv_dx = (direction == 0) ? -1.0 / dx : ((direction == 1) ? -1.0 / dy : -1.0 / dz);
 
-    // Loop over interior cells
-    for (int i = 0; i < nx; i++) {
-        for (int j = 0; j < ny; j++) {
-            for (int k = 0; k < nz; k++) {
-                int ii = i + ng;
-                int jj = j + ng;
-                int kk = k + ng;
+    // Vectorized approach: reorder loops to exploit SoA memory layout
+    // Process each variable separately to enable SIMD vectorization
 
-                // Flux difference
-                for (int v = 0; v < config_.num_vars; v++) {
-                    double flux_diff = 0.0;
-                    if (direction == 0) {
-                        flux_diff = flux(v, ii+1, jj, kk) - flux(v, ii, jj, kk);
-                    } else if (direction == 1) {
-                        flux_diff = flux(v, ii, jj+1, kk) - flux(v, ii, jj, kk);
-                    } else {
-                        flux_diff = flux(v, ii, jj, kk+1) - flux(v, ii, jj, kk);
+    if (direction == 0) {
+        // X-direction flux divergence
+        for (int v = 0; v < nvars; v++) {
+            for (int i = 0; i < nx; i++) {
+                const int ii = i + ng;
+                for (int j = 0; j < ny; j++) {
+                    const int jj = j + ng;
+                    // Vectorize innermost loop (k direction - contiguous in memory)
+                    #pragma omp simd
+                    for (int k = 0; k < nz; k++) {
+                        const int kk = k + ng;
+                        const double flux_diff = flux(v, ii+1, jj, kk) - flux(v, ii, jj, kk);
+                        (*rhs_)(v, ii, jj, kk) += inv_dx * flux_diff;
                     }
-
-                    (*rhs_)(v, ii, jj, kk) += inv_dx * flux_diff;
+                }
+            }
+        }
+    } else if (direction == 1) {
+        // Y-direction flux divergence
+        for (int v = 0; v < nvars; v++) {
+            for (int i = 0; i < nx; i++) {
+                const int ii = i + ng;
+                for (int j = 0; j < ny; j++) {
+                    const int jj = j + ng;
+                    #pragma omp simd
+                    for (int k = 0; k < nz; k++) {
+                        const int kk = k + ng;
+                        const double flux_diff = flux(v, ii, jj+1, kk) - flux(v, ii, jj, kk);
+                        (*rhs_)(v, ii, jj, kk) += inv_dx * flux_diff;
+                    }
+                }
+            }
+        }
+    } else {
+        // Z-direction flux divergence
+        for (int v = 0; v < nvars; v++) {
+            for (int i = 0; i < nx; i++) {
+                const int ii = i + ng;
+                for (int j = 0; j < ny; j++) {
+                    const int jj = j + ng;
+                    #pragma omp simd
+                    for (int k = 0; k < nz; k++) {
+                        const int kk = k + ng;
+                        const double flux_diff = flux(v, ii, jj, kk+1) - flux(v, ii, jj, kk);
+                        (*rhs_)(v, ii, jj, kk) += inv_dx * flux_diff;
+                    }
                 }
             }
         }
@@ -386,97 +417,115 @@ void MPIFVMSolver3D::apply_boundary_conditions() {
 }
 
 double MPIFVMSolver3D::compute_dt() {
-    int nx = local_grid_->nx_local();
-    int ny = local_grid_->ny_local();
-    int nz = local_grid_->nz_local();
-    int ng = local_grid_->nghost();
+    const int nx = local_grid_->nx_local();
+    const int ny = local_grid_->ny_local();
+    const int nz = local_grid_->nz_local();
+    const int ng = local_grid_->nghost();
+    const int nvars = config_.num_vars;
 
     const auto& geom = local_grid_->geometry();
-    double dx = geom.dx;
-    double dy = geom.dy;
-    double dz = geom.dz;
+    const double dx = geom.dx;
+    const double dy = geom.dy;
+    const double dz = geom.dz;
+    const double min_dx = std::min({dx, dy, dz});
 
     double min_dt = 1e10;
-    double max_wave_speed_global = 0.0;  // Debug: track maximum wave speed found
-    int debug_count = 0;  // Debug counter
+    double max_wave_speed_global = 0.0;
+    int debug_count = 0;
+
+    // Optimization: separate paths for MHD and Euler to reduce branching
+    const bool is_mhd = (nvars >= 8);
 
     // Compute local minimum timestep
-    for (int i = ng; i < nx + ng; i++) {
-        for (int j = ng; j < ny + ng; j++) {
-            for (int k = ng; k < nz + ng; k++) {
-                // Extract state
-                Eigen::VectorXd U(config_.num_vars);
-                for (int v = 0; v < config_.num_vars; v++) {
-                    U(v) = (*state_)(v, i, j, k);
-                }
+    if (is_mhd) {
+        // MHD path - optimized for magnetic fields
+        constexpr double gamma_mhd = 5.0/3.0;
+        constexpr double gamma_m1 = gamma_mhd - 1.0;
+        constexpr double p_floor = 1e-10;
+        constexpr double rho_floor = 1e-10;
 
-                // Compute maximum wave speed (physics-dependent)
-                double rho = U(0);
-                double max_speed = 1.0;  // Placeholder
+        for (int i = ng; i < nx + ng; i++) {
+            for (int j = ng; j < ny + ng; j++) {
+                for (int k = ng; k < nz + ng; k++) {
+                    // Direct access to state - avoid Eigen overhead
+                    const double rho = std::max((*state_)(0, i, j, k), rho_floor);
+                    const double rho_u = (*state_)(1, i, j, k);
+                    const double rho_v = (*state_)(2, i, j, k);
+                    const double rho_w = (*state_)(3, i, j, k);
+                    const double E = (*state_)(4, i, j, k);
+                    const double Bx = (*state_)(5, i, j, k);
+                    const double By = (*state_)(6, i, j, k);
+                    const double Bz = (*state_)(7, i, j, k);
 
-                if (rho > 1e-10) {
-                    double rho_u = U(1);
-                    double rho_v = U(2);
-                    double rho_w = U(3);
-                    double E = U(4);
+                    const double inv_rho = 1.0 / rho;
+                    const double u = rho_u * inv_rho;
+                    const double v = rho_v * inv_rho;
+                    const double w = rho_w * inv_rho;
 
-                    double u = rho_u / rho;
-                    double v = rho_v / rho;
-                    double w = rho_w / rho;
+                    const double B_sq = Bx*Bx + By*By + Bz*Bz;
+                    const double ke = 0.5 * rho * (u*u + v*v + w*w);
+                    const double me = 0.5 * B_sq;
+                    const double internal_energy = E - ke - me;
+                    double p = gamma_m1 * internal_energy;
 
-                    // For MHD physics (8 or 9 variables)
-                    if (config_.num_vars >= 8) {
-                        // Extract magnetic field components
-                        double Bx = U(5);
-                        double By = U(6);
-                        double Bz = U(7);
-                        double B_sq = Bx*Bx + By*By + Bz*Bz;
-
-                        // Compute pressure for MHD
-                        double ke = 0.5 * rho * (u*u + v*v + w*w);
-                        double me = 0.5 * B_sq;  // Magnetic energy (μ₀=1)
-                        double internal_energy = E - ke - me;
-                        double p = (5.0/3.0 - 1.0) * internal_energy;  // gamma=5/3 for MHD
-
-                        // Apply pressure floor to prevent negative/zero pressure
-                        constexpr double p_floor = 1e-10;
-                        if (p <= 0) {
-                            static int warning_count = 0;
-                            if (warning_count < 5 && parallel::MPIUtils::is_root()) {
-                                std::cout << "WARNING: Negative pressure detected at cell[" << i << "," << j << "," << k << "]: "
-                                          << "rho=" << rho << ", E=" << E << ", B²=" << B_sq
-                                          << ", ke=" << ke << ", me=" << me
-                                          << ", internal=" << internal_energy
-                                          << ", p=" << p << " -> applying floor " << p_floor << std::endl;
-                                warning_count++;
-                            }
-                            p = p_floor;
+                    if (p <= 0) {
+                        static int warning_count = 0;
+                        if (warning_count < 5 && parallel::MPIUtils::is_root()) {
+                            std::cout << "WARNING: Negative pressure at cell[" << i << "," << j << "," << k << "]: "
+                                      << "p=" << p << " -> floor " << p_floor << std::endl;
+                            warning_count++;
                         }
-
-                        // Fast magnetosonic speed: cf = sqrt(a² + B²/(μ₀*rho))
-                        double a_sq = (5.0/3.0) * p / rho;  // Sound speed squared
-                        double va_sq = B_sq / rho;          // Alfvén speed squared (μ₀=1)
-                        double cf = std::sqrt(a_sq + va_sq);
-
-                        double vel_mag = std::sqrt(u*u + v*v + w*w);
-                        max_speed = vel_mag + cf;
-                        debug_count++;
-                    } else {
-                        // For Euler equations
-                        double ke = 0.5 * (u*u + v*v + w*w);
-                        double p = (1.4 - 1.0) * (E - rho * ke);
-
-                        if (p > 0) {
-                            double cs = std::sqrt(1.4 * p / rho);
-                            double vel_mag = std::sqrt(u*u + v*v + w*w);
-                            max_speed = vel_mag + cs;
-                        }
+                        p = p_floor;
                     }
-                }
 
-                max_wave_speed_global = std::max(max_wave_speed_global, max_speed);
-                double dt_cell = std::min({dx, dy, dz}) / (max_speed + 1e-10);
-                min_dt = std::min(min_dt, dt_cell);
+                    // Fast magnetosonic speed
+                    const double a_sq = gamma_mhd * p * inv_rho;
+                    const double va_sq = B_sq * inv_rho;
+                    const double cf = std::sqrt(a_sq + va_sq);
+                    const double vel_mag = std::sqrt(u*u + v*v + w*w);
+                    const double max_speed = vel_mag + cf;
+
+                    max_wave_speed_global = std::max(max_wave_speed_global, max_speed);
+                    const double dt_cell = min_dx / (max_speed + 1e-10);
+                    min_dt = std::min(min_dt, dt_cell);
+                    debug_count++;
+                }
+            }
+        }
+    } else {
+        // Euler path - optimized for gas dynamics
+        constexpr double gamma = 1.4;
+        constexpr double gamma_m1 = gamma - 1.0;
+        constexpr double rho_floor = 1e-10;
+
+        for (int i = ng; i < nx + ng; i++) {
+            for (int j = ng; j < ny + ng; j++) {
+                for (int k = ng; k < nz + ng; k++) {
+                    const double rho = std::max((*state_)(0, i, j, k), rho_floor);
+                    const double rho_u = (*state_)(1, i, j, k);
+                    const double rho_v = (*state_)(2, i, j, k);
+                    const double rho_w = (*state_)(3, i, j, k);
+                    const double E = (*state_)(4, i, j, k);
+
+                    const double inv_rho = 1.0 / rho;
+                    const double u = rho_u * inv_rho;
+                    const double v = rho_v * inv_rho;
+                    const double w = rho_w * inv_rho;
+
+                    const double ke = 0.5 * (u*u + v*v + w*w);
+                    const double p = gamma_m1 * (E - rho * ke);
+
+                    double max_speed = 1.0;
+                    if (p > 0) {
+                        const double cs = std::sqrt(gamma * p * inv_rho);
+                        const double vel_mag = std::sqrt(u*u + v*v + w*w);
+                        max_speed = vel_mag + cs;
+                    }
+
+                    max_wave_speed_global = std::max(max_wave_speed_global, max_speed);
+                    const double dt_cell = min_dx / (max_speed + 1e-10);
+                    min_dt = std::min(min_dt, dt_cell);
+                }
             }
         }
     }
@@ -492,7 +541,7 @@ double MPIFVMSolver3D::compute_dt() {
     }
 
     // Global reduction to get minimum across all ranks
-    double global_min_dt = global_reduction_->reduce_cfl_timestep(min_dt);
+    const double global_min_dt = global_reduction_->reduce_cfl_timestep(min_dt);
 
     return config_.cfl * global_min_dt;
 }
