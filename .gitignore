@@ -40,3 +40,8 @@ __pycache__/
 
 # Log files
 *.log
+# VTK visualization output files
+*.vti
+*.pvti
+*.vtu
+*.pvtu
