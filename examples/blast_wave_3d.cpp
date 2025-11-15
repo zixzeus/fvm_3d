@@ -128,8 +128,8 @@ int main(int argc, char** argv) {
     U_L << 1.0, 0.0, 0.0, 0.0, 2.5;      // Sod shock tube left state
     U_R << 0.125, 0.0, 0.0, 0.0, 0.25;   // Sod shock tube right state
 
-    // Test using factory pattern (Riemann solvers only, not central schemes)
-    std::vector<std::string> solver_names = {"hll", "hllc"};
+    // Test using factory pattern (all flux methods via RiemannSolver interface)
+    std::vector<std::string> solver_names = {"laxfriedrichs", "hll", "hllc"};
 
     for (const auto& solver_name : solver_names) {
         auto solver = spatial::RiemannSolverFactory::create(solver_name);
