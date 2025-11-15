@@ -56,7 +56,7 @@ int main(int argc, char** argv) {
     config.num_vars = 5;
 
     // Numerical schemes
-    config.riemann_solver = "hllc";
+    config.flux_calculator = "hllc";
     config.reconstruction = "muscl";
     config.reconstruction_limiter = "van_leer";
     config.time_integrator = "rk2";

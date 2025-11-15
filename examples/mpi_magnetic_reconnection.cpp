@@ -58,7 +58,7 @@ int main(int argc, char** argv) {
     config.num_vars = 9;  // [rho, rho_u, rho_v, rho_w, E, Bx, By, Bz, psi]
 
     // Numerical schemes
-    config.riemann_solver = "hlld";  // HLLD solver for MHD (MHD-specific)
+    config.flux_calculator = "hlld";  // HLLD solver for MHD (MHD-specific)
     config.reconstruction = "constant";  // First-order but stable
     config.reconstruction_limiter = "minmod";
     config.time_integrator = "rk2";

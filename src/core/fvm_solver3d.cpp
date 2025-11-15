@@ -1,5 +1,7 @@
 #include "core/fvm_solver3d.hpp"
-#include "spatial/riemann_solvers/riemann_solver_factory.hpp"
+#include "physics/euler3d.hpp"
+#include "physics/resistive_mhd3d_advanced.hpp"
+#include "spatial/flux_calculation/flux_calculator_factory.hpp"
 #include "temporal/time_integrator_factory.hpp"
 #include "spatial/reconstruction/reconstruction_factory.hpp"
 #include "spatial/reconstruction/reconstruction_base.hpp"
@@ -20,26 +22,37 @@ FVMSolver3D::FVMSolver3D(const FVMSolverConfig& config)
                           config.Lx, config.Ly, config.Lz,
                           config.nx, config.ny, config.nz),
             config.nghost),
-      state_(5, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
-      rhs_(5, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
-      u_temp_(5, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
-      flux_x_(5, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
-      flux_y_(5, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
-      flux_z_(5, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
+      state_(config.num_vars, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
+      rhs_(config.num_vars, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
+      u_temp_(config.num_vars, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
+      flux_x_(config.num_vars, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
+      flux_y_(config.num_vars, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
+      flux_z_(config.num_vars, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
       t_current_(0.0),
       step_count_(0),
       dt_(0.0)
 {
-    // Initialize physics
-    physics_ = std::make_unique<physics::EulerEquations3D>();
+    // Initialize physics based on physics_type
+    if (config.physics_type == "euler") {
+        physics_ = std::make_shared<physics::EulerEquations3D>();
+    } else if (config.physics_type == "mhd_advanced" || config.physics_type == "mhd") {
+        physics::AdvancedResistiveMHD3D::ResistivityModel resistivity;
+        resistivity.eta0 = 1e-3;
+        resistivity.eta1 = 0.01667;
+        resistivity.localization_scale = 1.0;
+        physics::AdvancedResistiveMHD3D::GLMParameters glm(0.2, 0.2);
+        physics_ = std::make_shared<physics::AdvancedResistiveMHD3D>(resistivity, glm);
+    } else {
+        throw std::invalid_argument("Unknown physics type: " + config.physics_type);
+    }
 
-    // Initialize Riemann solver
-    riemann_solver_ = spatial::RiemannSolverFactory::create(config.riemann_solver, "euler", 5);  // FVMSolver uses Euler physics by default
+    // Initialize flux calculator
+    flux_calculator_ = spatial::FluxCalculatorFactory::create(config.flux_calculator, config.physics_type, config.num_vars);
 
     // Initialize reconstruction scheme
     reconstruction_ = spatial::ReconstructionFactory::create(
         config.reconstruction,
-        5,  // num_vars for Euler equations
+        config.num_vars,
         config.reconstruction_limiter
     );
 
@@ -69,7 +82,7 @@ FVMSolver3D::FVMSolver3D(const FVMSolverConfig& config)
                   << "  Domain: [" << config.xmin << "," << (config.xmin + config.Lx) << "] x "
                   << "[" << config.ymin << "," << (config.ymin + config.Ly) << "] x "
                   << "[" << config.zmin << "," << (config.zmin + config.Lz) << "]\n"
-                  << "  Riemann Solver: " << riemann_solver_->name() << "\n"
+                  << "  Flux Calculator: " << flux_calculator_->name() << "\n"
                   << "  Reconstruction: " << reconstruction_->name() << "\n"
                   << "  Time Integrator: " << time_integrator_->name() << "\n"
                   << "  Boundary Condition: " << boundary_condition_->name() << "\n"
@@ -202,7 +215,7 @@ void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out) {
                 for (int j = j_begin; j < j_end; j++) {
                     for (int k = k_begin; k < k_end; k++) {
                         reconstruct_1d(state_, direction, i, j, k, U_L, U_R);
-                        F = riemann_solver_->solve(U_L, U_R, direction);
+                        F = flux_calculator_->compute_flux(U_L, U_R, *physics_, direction);
 
                         // SIMD vectorization for flux storage
                         #pragma omp simd
@@ -224,7 +237,7 @@ void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out) {
                 for (int j = j_begin - 1; j < j_end; j++) {
                     for (int k = k_begin; k < k_end; k++) {
                         reconstruct_1d(state_, direction, i, j, k, U_L, U_R);
-                        F = riemann_solver_->solve(U_L, U_R, direction);
+                        F = flux_calculator_->compute_flux(U_L, U_R, *physics_, direction);
 
                         // SIMD vectorization for flux storage
                         #pragma omp simd
@@ -246,7 +259,7 @@ void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out) {
                 for (int j = j_begin; j < j_end; j++) {
                     for (int k = k_begin - 1; k < k_end; k++) {
                         reconstruct_1d(state_, direction, i, j, k, U_L, U_R);
-                        F = riemann_solver_->solve(U_L, U_R, direction);
+                        F = flux_calculator_->compute_flux(U_L, U_R, *physics_, direction);
 
                         // SIMD vectorization for flux storage
                         #pragma omp simd
@@ -390,13 +403,17 @@ void FVMSolver3D::compute_statistics() {
     for (int i = i_begin; i < i_end; i++) {
         for (int j = j_begin; j < j_end; j++) {
             for (int k = k_begin; k < k_end; k++) {
-                Eigen::VectorXd U(5);
-                for (int v = 0; v < 5; v++) {
+                Eigen::VectorXd U(config_.num_vars);
+                for (int v = 0; v < config_.num_vars; v++) {
                     U(v) = state_(v, i, j, k);
                 }
 
-                double rho, u, v, w, p;
-                physics_->conservative_to_primitive(U, rho, u, v, w, p);
+                Eigen::VectorXd V = physics_->conservative_to_primitive(U);
+                double rho = V(0);
+                double u = V(1);
+                double v = V(2);
+                double w = V(3);
+                double p = V(4);
 
                 stats_.min_rho = std::min(stats_.min_rho, rho);
                 stats_.max_rho = std::max(stats_.max_rho, rho);

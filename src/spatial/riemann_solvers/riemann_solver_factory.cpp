@@ -2,8 +2,6 @@
 #include "spatial/riemann_solvers/riemann_hll.hpp"
 #include "spatial/riemann_solvers/riemann_hllc.hpp"
 #include "spatial/riemann_solvers/riemann_hlld.hpp"
-#include "spatial/riemann_solvers/flux_calculator_adapter.hpp"
-#include "spatial/flux_calculation/lax_friedrichs.hpp"
 #include "physics/euler3d.hpp"
 #include "physics/resistive_mhd3d_advanced.hpp"
 #include <stdexcept>
@@ -43,11 +41,7 @@ std::unique_ptr<RiemannSolver> RiemannSolverFactory::create(
     }
 
     // Create Riemann solver with physics object
-    // LaxFriedrichs: central scheme, wrap FluxCalculator as RiemannSolver
-    if (name_lower == "laxfriedrichs" || name_lower == "lf") {
-        auto lf_flux = std::make_unique<LaxFriedrichsFlux>(physics);
-        return std::make_unique<FluxCalculatorAdapter>(std::move(lf_flux), physics);
-    } else if (name_lower == "hll") {
+    if (name_lower == "hll") {
         return std::make_unique<HLLSolver>(physics);
     } else if (name_lower == "hllc") {
         return std::make_unique<HLLCSolver>(physics);
@@ -65,7 +59,6 @@ std::unique_ptr<RiemannSolver> RiemannSolverFactory::create(
 
 std::vector<std::string> RiemannSolverFactory::supported_solvers() {
     return {
-        "laxfriedrichs",
         "hll",
         "hllc",
         "hlld"
@@ -73,13 +66,10 @@ std::vector<std::string> RiemannSolverFactory::supported_solvers() {
 }
 
 void RiemannSolverFactory::print_available_solvers() {
-    std::cout << "Available flux methods via RiemannSolverFactory:\n";
-    std::cout << "\nTrue Riemann solvers:\n";
+    std::cout << "Available Riemann solvers via RiemannSolverFactory:\n";
     std::cout << "  - hll\n";
     std::cout << "  - hllc\n";
-    std::cout << "  - hlld\n";
-    std::cout << "\nCentral schemes (wrapped as RiemannSolver):\n";
-    std::cout << "  - laxfriedrichs (lf)\n";
+    std::cout << "  - hlld (MHD only)\n";
     std::cout << "\nNote: For unified flux calculation interface, use FluxCalculatorFactory.\n";
 }
 

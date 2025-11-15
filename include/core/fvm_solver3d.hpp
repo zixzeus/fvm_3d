@@ -2,8 +2,8 @@
 
 #include "grid3d.hpp"
 #include "field3d.hpp"
-#include "physics/euler3d.hpp"
-#include "spatial/riemann_solvers/riemann_solver.hpp"
+#include "physics/physics_base.hpp"
+#include "spatial/flux_calculation/flux_calculator_base.hpp"
 #include "temporal/time_integrator.hpp"
 #include "spatial/reconstruction/reconstruction_base.hpp"
 #include "boundary/boundary_condition.hpp"
@@ -23,8 +23,12 @@ struct FVMSolverConfig {
     int nx, ny, nz;             // Number of cells
     int nghost;                 // Number of ghost cells
 
-    // Physics and schemes
-    std::string riemann_solver;     // "laxfriedrichs", "hll", "hllc"
+    // Physics type
+    std::string physics_type;       // "euler", "mhd", "mhd_advanced"
+    int num_vars;                   // Number of variables (5 for Euler, 8/9 for MHD)
+
+    // Numerical schemes
+    std::string flux_calculator;    // "laxfriedrichs", "hll", "hllc", "hlld"
     std::string reconstruction;     // "constant", "muscl"
     std::string reconstruction_limiter;  // "minmod", "van_leer", "superbee"
     std::string time_integrator;    // "euler", "rk2", "rk3"
@@ -47,7 +51,7 @@ struct FVMSolverConfig {
  * Main FVM Solver for 3D compressible flow.
  *
  * Orchestrates:
- * - Spatial discretization (reconstruction + Riemann solver)
+ * - Spatial discretization (reconstruction + flux calculator)
  * - Time integration (explicit Runge-Kutta)
  * - Boundary condition application
  * - Main simulation loop
@@ -132,8 +136,8 @@ private:
     StateField3D flux_x_, flux_y_, flux_z_;  // Fluxes in each direction
 
     // Physics and numerical schemes
-    std::unique_ptr<physics::EulerEquations3D> physics_;
-    std::unique_ptr<spatial::RiemannSolver> riemann_solver_;
+    std::shared_ptr<physics::PhysicsBase> physics_;
+    std::unique_ptr<spatial::FluxCalculator> flux_calculator_;
     std::unique_ptr<spatial::ReconstructionMethod> reconstruction_;
     std::unique_ptr<temporal::TimeIntegrator> time_integrator_;
     std::unique_ptr<boundary::BoundaryCondition> boundary_condition_;

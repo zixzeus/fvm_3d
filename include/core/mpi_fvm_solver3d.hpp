@@ -5,7 +5,7 @@
 #include "physics/euler3d.hpp"
 #include "physics/resistive_mhd3d.hpp"
 #include "physics/resistive_mhd3d_advanced.hpp"
-#include "spatial/riemann_solvers/riemann_solver.hpp"
+#include "spatial/flux_calculation/flux_calculator_base.hpp"
 #include "temporal/time_integrator.hpp"
 #include "spatial/reconstruction/reconstruction_base.hpp"
 #include "boundary/boundary_condition.hpp"
@@ -37,7 +37,7 @@ struct MPIFVMSolverConfig {
     int num_vars;               // Number of variables (5 for Euler, 8/9 for MHD)
 
     // Numerical schemes
-    std::string riemann_solver;     // "laxfriedrichs", "hll", "hllc", "hlld"
+    std::string flux_calculator;     // "laxfriedrichs", "hll", "hllc", "hlld"
     std::string reconstruction;     // "constant", "muscl"
     std::string reconstruction_limiter;  // "minmod", "van_leer", "superbee"
     std::string time_integrator;    // "euler", "rk2", "rk3"
@@ -175,7 +175,8 @@ private:
     std::unique_ptr<StateField3D> flux_x_, flux_y_, flux_z_;  // Local fluxes
 
     // Physics and numerical schemes (polymorphic)
-    std::unique_ptr<spatial::RiemannSolver> riemann_solver_;
+    std::shared_ptr<physics::PhysicsBase> physics_;  // Physics equation system
+    std::unique_ptr<spatial::FluxCalculator> flux_calculator_;
     std::unique_ptr<spatial::ReconstructionMethod> reconstruction_;
     std::unique_ptr<temporal::TimeIntegrator> time_integrator_;
     std::unique_ptr<boundary::BoundaryCondition> boundary_condition_;

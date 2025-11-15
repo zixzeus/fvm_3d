@@ -38,7 +38,7 @@ int main() {
     config.nghost = 2;
 
     // Numerical schemes
-    config.riemann_solver = "hllc";
+    config.flux_calculator = "hllc";
     config.reconstruction = "constant";
     config.reconstruction_limiter = "minmod";
     config.time_integrator = "rk2";

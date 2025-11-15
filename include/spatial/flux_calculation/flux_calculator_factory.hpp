@@ -1,8 +1,6 @@
 #pragma once
 
 #include "flux_calculator_base.hpp"
-#include "riemann_flux_adapter.hpp"
-#include "spatial/riemann_solvers/riemann_solver_factory.hpp"
 #include <memory>
 #include <string>
 #include <vector>
@@ -13,9 +11,9 @@ namespace fvm3d::spatial {
  * Factory for creating flux calculators.
  *
  * Provides unified interface to create different types of flux calculators:
- * - Riemann solver-based (via RiemannSolverFactory + adapter)
- * - Central schemes
- * - Hybrid methods
+ * - Riemann solver-based (HLL, HLLC, HLLD, Lax-Friedrichs)
+ * - Central schemes (future)
+ * - Hybrid methods (future)
  *
  * Usage:
  *   auto flux_calc = FluxCalculatorFactory::create("hllc", "mhd_advanced");

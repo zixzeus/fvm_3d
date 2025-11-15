@@ -1,6 +1,6 @@
 #include "spatial/flux_calculation/flux_calculator_factory.hpp"
 #include "spatial/flux_calculation/lax_friedrichs.hpp"
-#include "spatial/riemann_solvers/riemann_solver_factory.hpp"
+#include "spatial/flux_calculation/riemann_flux.hpp"
 #include "physics/euler3d.hpp"
 #include "physics/resistive_mhd3d_advanced.hpp"
 #include <algorithm>
@@ -37,19 +37,18 @@ std::unique_ptr<FluxCalculator> FluxCalculatorFactory::create(
         throw std::invalid_argument("Unknown physics type: " + physics_type);
     }
 
-    // LaxFriedrichs is a native FluxCalculator
+    // Lax-Friedrichs flux calculator
     if (name_lower == "laxfriedrichs" || name_lower == "lf") {
         return std::make_unique<LaxFriedrichsFlux>(physics);
     }
 
-    // Other Riemann solvers: create via RiemannSolverFactory and wrap in adapter
-    try {
-        auto riemann_solver = RiemannSolverFactory::create(name, physics_type, num_vars);
-        return std::make_unique<RiemannFluxAdapter>(std::move(riemann_solver));
-    } catch (const std::invalid_argument& e) {
-        // Re-throw with updated message
-        throw std::invalid_argument("Unknown flux calculator: " + name);
+    // Riemann solver-based flux calculators
+    if (name_lower == "hll" || name_lower == "hllc" || name_lower == "hlld") {
+        return std::make_unique<RiemannFlux>(name_lower, physics);
     }
+
+    // Unknown flux calculator
+    throw std::invalid_argument("Unknown flux calculator: " + name);
 
     // Future: add non-Riemann methods here
     // if (name_lower == "central") {
@@ -62,14 +61,15 @@ std::unique_ptr<FluxCalculator> FluxCalculatorFactory::create(
 std::vector<std::string> FluxCalculatorFactory::supported_calculators() {
     std::vector<std::string> calculators;
 
-    // Add LaxFriedrichs (native FluxCalculator)
+    // Riemann solver-based flux calculators
     calculators.push_back("laxfriedrichs (lf)");
-
-    // Add other Riemann solvers
-    auto riemann_solvers = RiemannSolverFactory::supported_solvers();
-    calculators.insert(calculators.end(), riemann_solvers.begin(), riemann_solvers.end());
+    calculators.push_back("hll");
+    calculators.push_back("hllc");
+    calculators.push_back("hlld (MHD only)");
 
     // Future: add additional non-Riemann methods
+    // calculators.push_back("central");
+    // calculators.push_back("ausm");
 
     return calculators;
 }

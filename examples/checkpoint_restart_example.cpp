@@ -58,7 +58,7 @@ int main() {
     config.nz = 32;
     config.nghost = 2;
 
-    config.riemann_solver = "hllc";
+    config.flux_calculator = "hllc";
     config.reconstruction = "muscl";
     config.reconstruction_limiter = "van_leer";
     config.time_integrator = "rk2";

@@ -1,5 +1,5 @@
 #include "core/mpi_fvm_solver3d.hpp"
-#include "spatial/riemann_solvers/riemann_solver_factory.hpp"
+#include "spatial/flux_calculation/flux_calculator_factory.hpp"
 #include "temporal/time_integrator_factory.hpp"
 #include "spatial/reconstruction/reconstruction_factory.hpp"
 #include "spatial/reconstruction/reconstruction_base.hpp"
@@ -82,8 +82,22 @@ MPIFVMSolver3D::MPIFVMSolver3D(const MPIFVMSolverConfig& config)
 
     global_reduction_ = std::make_unique<parallel::MPIGlobalReduction>();
 
-    // Initialize Riemann solver
-    riemann_solver_ = spatial::RiemannSolverFactory::create(config.riemann_solver, config.physics_type, config.num_vars);
+    // Initialize physics
+    if (config.physics_type == "euler") {
+        physics_ = std::make_shared<physics::EulerEquations3D>();
+    } else if (config.physics_type == "mhd_advanced" || config.physics_type == "mhd") {
+        physics::AdvancedResistiveMHD3D::ResistivityModel resistivity;
+        resistivity.eta0 = 1e-3;
+        resistivity.eta1 = 0.01667;
+        resistivity.localization_scale = 1.0;
+        physics::AdvancedResistiveMHD3D::GLMParameters glm(0.2, 0.2);
+        physics_ = std::make_shared<physics::AdvancedResistiveMHD3D>(resistivity, glm);
+    } else {
+        throw std::invalid_argument("Unknown physics type: " + config.physics_type);
+    }
+
+    // Initialize flux calculator
+    flux_calculator_ = spatial::FluxCalculatorFactory::create(config.flux_calculator, config.physics_type, config.num_vars);
 
     // Initialize reconstruction scheme
     reconstruction_ = spatial::ReconstructionFactory::create(
@@ -124,7 +138,7 @@ MPIFVMSolver3D::MPIFVMSolver3D(const MPIFVMSolverConfig& config)
                   << "[" << config.ymin << "," << (config.ymin + config.Ly) << "] x "
                   << "[" << config.zmin << "," << (config.zmin + config.Lz) << "]\n"
                   << "  Variables: " << config.num_vars << " (" << config.physics_type << ")\n"
-                  << "  Riemann Solver: " << riemann_solver_->name() << "\n"
+                  << "  Riemann Solver: " << flux_calculator_->name() << "\n"
                   << "  Reconstruction: " << reconstruction_->name() << "\n"
                   << "  Time Integrator: " << time_integrator_->name() << "\n"
                   << "  Boundary Condition: " << boundary_condition_->name() << "\n"
@@ -294,8 +308,8 @@ void MPIFVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out) {
                 // Reconstruct left and right states
                 reconstruct_1d(*state_, direction, ii, jj, kk, U_L, U_R);
 
-                // Compute Riemann flux
-                F = riemann_solver_->solve(U_L, U_R, direction);
+                // Compute numerical flux
+                F = flux_calculator_->compute_flux(U_L, U_R, *physics_, direction);
 
                 // Store flux with SIMD vectorization
                 #pragma omp simd
