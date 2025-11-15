@@ -62,6 +62,10 @@ int main() {
     config.nz = 8;
     config.nghost = 2;
 
+    // Physics configuration
+    config.physics_type = "euler";
+    config.num_vars = 5;  // Euler: [rho, rho_u, rho_v, rho_w, E]
+
     config.flux_calculator = "hllc";
     config.reconstruction = "muscl";
     config.reconstruction_limiter = "van_leer";

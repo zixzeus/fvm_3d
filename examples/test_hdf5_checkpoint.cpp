@@ -33,6 +33,10 @@ int main() {
         config.nz = 8;
         config.nghost = 2;
 
+        // Physics configuration
+        config.physics_type = "euler";
+        config.num_vars = 5;
+
         config.flux_calculator = "hll";
         config.reconstruction = "muscl";
         config.reconstruction_limiter = "van_leer";

@@ -36,35 +36,10 @@ double LaxFriedrichsFlux::compute_max_wave_speed(
     const physics::PhysicsBase& physics,
     int direction
 ) const {
-    // Convert to primitive variables using provided physics object
-    Eigen::VectorXd V_L = physics.conservative_to_primitive(U_L);
-    Eigen::VectorXd V_R = physics.conservative_to_primitive(U_R);
-
-    // Extract primitive variables (common to both Euler and MHD)
-    double rho_L = V_L(0);
-    double u_L = V_L(1);
-    double v_L = V_L(2);
-    double w_L = V_L(3);
-    double p_L = V_L(4);
-
-    double rho_R = V_R(0);
-    double u_R = V_R(1);
-    double v_R = V_R(2);
-    double w_R = V_R(3);
-    double p_R = V_R(4);
-
-    // Compute sound speeds
-    const double gamma = 5.0/3.0;  // Adiabatic index
-    double a_L = std::sqrt(gamma * p_L / rho_L);
-    double a_R = std::sqrt(gamma * p_R / rho_R);
-
-    // Select normal velocity based on direction
-    double u_normal_L = (direction == 0) ? u_L : (direction == 1) ? v_L : w_L;
-    double u_normal_R = (direction == 0) ? u_R : (direction == 1) ? v_R : w_R;
-
-    // Maximum wave speed: max(|u| + a)
-    double lambda_L = std::abs(u_normal_L) + a_L;
-    double lambda_R = std::abs(u_normal_R) + a_R;
+    // Delegate to physics object - it knows the correct wave speeds for the equation type
+    // (e.g., acoustic waves for Euler, magnetosonic/Alfvén waves for MHD)
+    double lambda_L = physics.max_wave_speed(U_L, direction);
+    double lambda_R = physics.max_wave_speed(U_R, direction);
 
     return std::max(lambda_L, lambda_R);
 }
