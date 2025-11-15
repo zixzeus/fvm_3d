@@ -24,7 +24,8 @@ void ConstantReconstruction::reconstruct(
     U_L.resize(num_vars_);
     U_R.resize(num_vars_);
 
-    // Extract left state (current cell)
+    // Extract left state (current cell) with SIMD vectorization
+    #pragma omp simd
     for (int var = 0; var < num_vars_; ++var) {
         U_L(var) = U(var, i, j, k);
     }
@@ -39,6 +40,8 @@ void ConstantReconstruction::reconstruct(
         k_next = k + 1;
     }
 
+    // SIMD vectorization for extracting right state
+    #pragma omp simd
     for (int var = 0; var < num_vars_; ++var) {
         U_R(var) = U(var, i_next, j_next, k_next);
     }
@@ -76,7 +79,8 @@ void ConstantReconstruction::reconstruct_all(
 
                 reconstruct(U, i_cell, j_cell, k_cell, direction, U_L, U_R);
 
-                // Store in output fields
+                // Store in output fields with SIMD vectorization
+                #pragma omp simd
                 for (int var = 0; var < num_vars_; ++var) {
                     U_left(var, i, j, k) = U_L(var);
                     U_right(var, i, j, k) = U_R(var);

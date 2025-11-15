@@ -34,6 +34,8 @@ void MUSCLReconstruction::reconstruct(
 
     // Reconstruct each variable independently
     // Standard MUSCL uses 3-point stencil for each side
+    // SIMD vectorization for processing multiple variables in parallel
+    #pragma omp simd
     for (int var = 0; var < num_vars_; ++var) {
         // Get cell values based on direction
         double U_minus1, U_center, U_plus1, U_plus2;
@@ -108,7 +110,8 @@ void MUSCLReconstruction::reconstruct_all(
 
                 reconstruct(U, i_cell, j_cell, k_cell, direction, U_L, U_R);
 
-                // Store in output fields
+                // Store in output fields with SIMD vectorization
+                #pragma omp simd
                 for (int var = 0; var < num_vars_; ++var) {
                     U_left(var, i, j, k) = U_L(var);
                     U_right(var, i, j, k) = U_R(var);
