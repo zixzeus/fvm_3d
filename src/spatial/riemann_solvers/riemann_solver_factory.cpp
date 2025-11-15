@@ -1,4 +1,5 @@
 #include "spatial/riemann_solvers/riemann_solver_factory.hpp"
+#include "spatial/riemann_solvers/riemann_lax_friedrichs.hpp"
 #include "spatial/riemann_solvers/riemann_hll.hpp"
 #include "spatial/riemann_solvers/riemann_hllc.hpp"
 #include "spatial/riemann_solvers/riemann_hlld.hpp"
@@ -41,13 +42,8 @@ std::unique_ptr<RiemannSolver> RiemannSolverFactory::create(
     }
 
     // Create Riemann solver with physics object
-    // Note: LaxFriedrichs is now a FluxCalculator in flux_calculation directory
-    // For backward compatibility, we default to HLL when LF is requested
     if (name_lower == "laxfriedrichs" || name_lower == "lf") {
-        std::cerr << "Warning: LaxFriedrichs has been moved to FluxCalculator interface.\n";
-        std::cerr << "         Using HLL solver as replacement for backward compatibility.\n";
-        std::cerr << "         Consider using FluxCalculatorFactory::create() for LaxFriedrichs.\n";
-        return std::make_unique<HLLSolver>(physics);
+        return std::make_unique<LaxFriedrichsSolver>(physics);
     } else if (name_lower == "hll") {
         return std::make_unique<HLLSolver>(physics);
     } else if (name_lower == "hllc") {
@@ -66,10 +62,10 @@ std::unique_ptr<RiemannSolver> RiemannSolverFactory::create(
 
 std::vector<std::string> RiemannSolverFactory::supported_solvers() {
     return {
+        "laxfriedrichs",
         "hll",
         "hllc",
         "hlld"
-        // Note: laxfriedrichs is now a FluxCalculator
     };
 }
 
@@ -78,7 +74,6 @@ void RiemannSolverFactory::print_available_solvers() {
     for (const auto& solver : supported_solvers()) {
         std::cout << "  - " << solver << "\n";
     }
-    std::cout << "\nNote: LaxFriedrichs is now available via FluxCalculatorFactory\n";
 }
 
 } // namespace fvm3d::spatial
