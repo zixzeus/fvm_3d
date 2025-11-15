@@ -55,9 +55,9 @@ int main() {
 
     // Time stepping
     config.cfl = 0.4;
-    config.t_final = 0.2;
-    config.num_steps = 1000;
-    config.output_interval = 20;  // Print every 20 steps
+    config.t_final = 0.8;  // Longer simulation time to capture blast wave evolution
+    config.num_steps = 2000;
+    config.output_interval = 50;  // Print every 50 steps
 
     config.verbose = 1;
 
@@ -113,7 +113,10 @@ int main() {
     // Run simulation with periodic VTK output
     std::cout << "\nRunning simulation with VTK output...\n\n";
 
-    int vtk_output_interval = 50;  // Export every 50 steps
+    // Output based on time intervals for better visualization of blast wave evolution
+    // Export at t = 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8
+    double vtk_time_interval = 0.1;  // Export every 0.1 time units
+    double next_vtk_time = vtk_time_interval;
     int vtk_count = 1;
 
     while (solver.step_count() < config.num_steps && solver.time() < config.t_final) {
@@ -122,12 +125,12 @@ int main() {
         // Print progress
         if (config.output_interval > 0 && solver.step_count() % config.output_interval == 0) {
             std::cout << "Step " << solver.step_count()
-                      << " | t = " << solver.time()
-                      << "\n";
+                      << " | t = " << std::scientific << solver.time()
+                      << std::fixed << "\n";
         }
 
-        // Export to VTK periodically
-        if (solver.step_count() % vtk_output_interval == 0) {
+        // Export to VTK when time crosses threshold
+        if (solver.time() >= next_vtk_time) {
             char filename[256];
             snprintf(filename, sizeof(filename), "output_%04d.vti", vtk_count);
 
@@ -141,8 +144,10 @@ int main() {
                 true
             );
 
-            std::cout << "  -> Exported VTK: " << filename << "\n";
+            std::cout << "  -> Exported VTK: " << filename
+                      << " (t = " << std::scientific << solver.time() << ")" << std::fixed << "\n";
             vtk_count++;
+            next_vtk_time += vtk_time_interval;
         }
     }
 
