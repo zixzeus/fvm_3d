@@ -42,7 +42,6 @@ set(PHYSICS_SOURCES
 
 set(SPATIAL_SOURCES
     src/spatial/flux_calculation/lax_friedrichs.cpp
-    src/spatial/riemann_solvers/riemann_lax_friedrichs.cpp
     src/spatial/riemann_solvers/riemann_hll.cpp
     src/spatial/riemann_solvers/riemann_hllc.cpp
     src/spatial/riemann_solvers/riemann_hlld.cpp

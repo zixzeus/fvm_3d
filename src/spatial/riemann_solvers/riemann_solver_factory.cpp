@@ -1,5 +1,4 @@
 #include "spatial/riemann_solvers/riemann_solver_factory.hpp"
-#include "spatial/riemann_solvers/riemann_lax_friedrichs.hpp"
 #include "spatial/riemann_solvers/riemann_hll.hpp"
 #include "spatial/riemann_solvers/riemann_hllc.hpp"
 #include "spatial/riemann_solvers/riemann_hlld.hpp"
@@ -43,7 +42,11 @@ std::unique_ptr<RiemannSolver> RiemannSolverFactory::create(
 
     // Create Riemann solver with physics object
     if (name_lower == "laxfriedrichs" || name_lower == "lf") {
-        return std::make_unique<LaxFriedrichsSolver>(physics);
+        throw std::invalid_argument(
+            "LaxFriedrichs is a central scheme, not a Riemann solver.\n"
+            "Please use FluxCalculatorFactory::create(\"laxfriedrichs\") instead.\n"
+            "True Riemann solvers available: hll, hllc, hlld"
+        );
     } else if (name_lower == "hll") {
         return std::make_unique<HLLSolver>(physics);
     } else if (name_lower == "hllc") {
@@ -62,7 +65,6 @@ std::unique_ptr<RiemannSolver> RiemannSolverFactory::create(
 
 std::vector<std::string> RiemannSolverFactory::supported_solvers() {
     return {
-        "laxfriedrichs",
         "hll",
         "hllc",
         "hlld"
@@ -74,6 +76,8 @@ void RiemannSolverFactory::print_available_solvers() {
     for (const auto& solver : supported_solvers()) {
         std::cout << "  - " << solver << "\n";
     }
+    std::cout << "\nNote: LaxFriedrichs is a central scheme, not a Riemann solver.\n";
+    std::cout << "      Use FluxCalculatorFactory::create(\"laxfriedrichs\") instead.\n";
 }
 
 } // namespace fvm3d::spatial
