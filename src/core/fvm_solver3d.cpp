@@ -204,6 +204,8 @@ void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out) {
                         reconstruct_1d(state_, direction, i, j, k, U_L, U_R);
                         F = riemann_solver_->solve(U_L, U_R, direction);
 
+                        // SIMD vectorization for flux storage
+                        #pragma omp simd
                         for (int v = 0; v < nvars; v++) {
                             flux_out(v, i, j, k) = F(v);
                         }
@@ -224,6 +226,8 @@ void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out) {
                         reconstruct_1d(state_, direction, i, j, k, U_L, U_R);
                         F = riemann_solver_->solve(U_L, U_R, direction);
 
+                        // SIMD vectorization for flux storage
+                        #pragma omp simd
                         for (int v = 0; v < nvars; v++) {
                             flux_out(v, i, j, k) = F(v);
                         }
@@ -244,6 +248,8 @@ void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out) {
                         reconstruct_1d(state_, direction, i, j, k, U_L, U_R);
                         F = riemann_solver_->solve(U_L, U_R, direction);
 
+                        // SIMD vectorization for flux storage
+                        #pragma omp simd
                         for (int v = 0; v < nvars; v++) {
                             flux_out(v, i, j, k) = F(v);
                         }

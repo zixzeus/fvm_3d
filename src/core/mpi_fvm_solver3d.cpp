@@ -297,7 +297,8 @@ void MPIFVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out) {
                 // Compute Riemann flux
                 F = riemann_solver_->solve(U_L, U_R, direction);
 
-                // Store flux - this could benefit from vectorization
+                // Store flux with SIMD vectorization
+                #pragma omp simd
                 for (int v = 0; v < nvars; v++) {
                     flux_out(v, ii, jj, kk) = F(v);
                 }

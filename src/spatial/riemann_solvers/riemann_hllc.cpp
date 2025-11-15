@@ -215,7 +215,8 @@ Eigen::VectorXd HLLCSolver::compute_u_left_hllc(
     U_Lm(0) = coeff;
     U_Lm(direction + 1) = coeff * S_M;
 
-    // Tangential momentum components unchanged
+    // Tangential momentum components unchanged (SIMD vectorization)
+    #pragma omp simd
     for (int d = 1; d <= 3; d++) {
         if (d != direction + 1) {
             U_Lm(d) = coeff * velocities[d - 1];
@@ -254,7 +255,8 @@ Eigen::VectorXd HLLCSolver::compute_u_right_hllc(
     U_Rm(0) = coeff;
     U_Rm(direction + 1) = coeff * S_M;
 
-    // Tangential momentum components unchanged
+    // Tangential momentum components unchanged (SIMD vectorization)
+    #pragma omp simd
     for (int d = 1; d <= 3; d++) {
         if (d != direction + 1) {
             U_Rm(d) = coeff * velocities[d - 1];
