@@ -19,21 +19,30 @@ Eigen::VectorXd HLLDSolver::solve(
     constexpr double MU0 = 1.0;
     int nvars = U_L.size();
 
-    // Convert to primitive variables
-    double rho_L, u_L, v_L, w_L, p_L, Bx_L, By_L, Bz_L;
-    double rho_R, u_R, v_R, w_R, p_R, Bx_R, By_R, Bz_R;
-    mhd_->conservative_to_primitive(U_L, rho_L, u_L, v_L, w_L, p_L, Bx_L, By_L, Bz_L);
-    mhd_->conservative_to_primitive(U_R, rho_R, u_R, v_R, w_R, p_R, Bx_R, By_R, Bz_R);
-
     // Rotate to normal direction
     Eigen::VectorXd UL_rot = rotate_to_normal(U_L, direction);
     Eigen::VectorXd UR_rot = rotate_to_normal(U_R, direction);
 
     // Extract rotated primitive variables
-    double rho_L_r, u_L_r, v_L_r, w_L_r, p_L_r, Bx_r, By_L_r, Bz_L_r;
-    double rho_R_r, u_R_r, v_R_r, w_R_r, p_R_r, By_R_r, Bz_R_r;
-    mhd_->conservative_to_primitive(UL_rot, rho_L_r, u_L_r, v_L_r, w_L_r, p_L_r, Bx_r, By_L_r, Bz_L_r);
-    mhd_->conservative_to_primitive(UR_rot, rho_R_r, u_R_r, v_R_r, w_R_r, p_R_r, Bx_r, By_R_r, Bz_R_r);
+    Eigen::VectorXd VL_rot = mhd_->conservative_to_primitive(UL_rot);
+    Eigen::VectorXd VR_rot = mhd_->conservative_to_primitive(UR_rot);
+
+    double rho_L_r = VL_rot(0);
+    double u_L_r = VL_rot(1);
+    double v_L_r = VL_rot(2);
+    double w_L_r = VL_rot(3);
+    double p_L_r = VL_rot(4);
+    double Bx_r = VL_rot(5);
+    double By_L_r = VL_rot(6);
+    double Bz_L_r = VL_rot(7);
+
+    double rho_R_r = VR_rot(0);
+    double u_R_r = VR_rot(1);
+    double v_R_r = VR_rot(2);
+    double w_R_r = VR_rot(3);
+    double p_R_r = VR_rot(4);
+    double By_R_r = VR_rot(6);
+    double Bz_R_r = VR_rot(7);
 
     // Compute sound speeds
     double a_L = mhd_->sound_speed(rho_L_r, p_L_r);
@@ -68,10 +77,26 @@ Eigen::VectorXd HLLDSolver::solve(
 
 double HLLDSolver::max_wave_speed(const Eigen::VectorXd& U_L, const Eigen::VectorXd& U_R, int direction) const {
     // Convert to primitive
-    double rho_L, u_L, v_L, w_L, p_L, Bx_L, By_L, Bz_L;
-    double rho_R, u_R, v_R, w_R, p_R, Bx_R, By_R, Bz_R;
-    mhd_->conservative_to_primitive(U_L, rho_L, u_L, v_L, w_L, p_L, Bx_L, By_L, Bz_L);
-    mhd_->conservative_to_primitive(U_R, rho_R, u_R, v_R, w_R, p_R, Bx_R, By_R, Bz_R);
+    Eigen::VectorXd V_L = mhd_->conservative_to_primitive(U_L);
+    Eigen::VectorXd V_R = mhd_->conservative_to_primitive(U_R);
+
+    double rho_L = V_L(0);
+    double u_L = V_L(1);
+    double v_L = V_L(2);
+    double w_L = V_L(3);
+    double p_L = V_L(4);
+    double Bx_L = V_L(5);
+    double By_L = V_L(6);
+    double Bz_L = V_L(7);
+
+    double rho_R = V_R(0);
+    double u_R = V_R(1);
+    double v_R = V_R(2);
+    double w_R = V_R(3);
+    double p_R = V_R(4);
+    double Bx_R = V_R(5);
+    double By_R = V_R(6);
+    double Bz_R = V_R(7);
 
     // Select normal velocity
     double un_L = (direction == 0) ? u_L : (direction == 1) ? v_L : w_L;

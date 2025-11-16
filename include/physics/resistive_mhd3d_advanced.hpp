@@ -135,8 +135,28 @@ public:
      * Note: ψ is dropped as it's not a primitive variable
      */
     Eigen::VectorXd conservative_to_primitive(const Eigen::VectorXd& U) const override {
-        double rho, u, v, w, p, Bx, By, Bz;
-        conservative_to_primitive(U, rho, u, v, w, p, Bx, By, Bz);
+        // Density with floor
+        double rho = std::max(U(0), RHO_FLOOR);
+
+        // Velocity components
+        double u = U(1) / rho;
+        double v = U(2) / rho;
+        double w = U(3) / rho;
+
+        // Magnetic field (directly from conservative)
+        double Bx = U(5);
+        double By = U(6);
+        double Bz = U(7);
+
+        // Compute energies
+        double u_sq = u*u + v*v + w*w;
+        double B_sq = Bx*Bx + By*By + Bz*Bz;
+        double kinetic_energy = 0.5 * rho * u_sq;
+        double magnetic_energy = 0.5 * B_sq / MU0;
+
+        // Extract pressure from total energy
+        double internal_energy = U(4) / rho - 0.5 * u_sq - (B_sq / (2.0 * MU0 * rho));
+        double p = std::max((GAMMA - 1.0) * rho * internal_energy, P_FLOOR);
 
         Eigen::VectorXd V(8);
         V << rho, u, v, w, p, Bx, By, Bz;
@@ -150,10 +170,35 @@ public:
      * Note: ψ is set to 0.0 by default
      */
     Eigen::VectorXd primitive_to_conservative(const Eigen::VectorXd& V) const override {
-        Eigen::VectorXd U(nvars);
+        double rho = std::max(V(0), RHO_FLOOR);
+        double u = V(1);
+        double v = V(2);
+        double w = V(3);
+        double p = std::max(V(4), P_FLOOR);
+        double Bx = V(5);
+        double By = V(6);
+        double Bz = V(7);
         double psi = 0.0;  // Default GLM field value
-        primitive_to_conservative(V(0), V(1), V(2), V(3), V(4),
-                                 V(5), V(6), V(7), psi, U);
+
+        Eigen::VectorXd U(nvars);
+        U(0) = rho;
+        U(1) = rho * u;
+        U(2) = rho * v;
+        U(3) = rho * w;
+        U(5) = Bx;
+        U(6) = By;
+        U(7) = Bz;
+        U(8) = psi;  // GLM field
+
+        // Total energy density
+        double u_sq = u*u + v*v + w*w;
+        double B_sq = Bx*Bx + By*By + Bz*Bz;
+        double kinetic_energy = 0.5 * rho * u_sq;
+        double internal_energy = p / ((GAMMA - 1.0) * rho);
+        double magnetic_energy = 0.5 * B_sq / MU0;
+
+        U(4) = rho * internal_energy + kinetic_energy + magnetic_energy;
+
         return U;
     }
 
@@ -176,29 +221,6 @@ public:
                 );
         }
     }
-
-    // ========== Legacy Interface (for backwards compatibility) ==========
-
-    /**
-     * Convert conservative variables to primitive variables.
-     * @param U: conservative state [ρ, ρu, ρv, ρw, E, Bx, By, Bz, ψ]
-     * @param rho, u, v, w, p, Bx, By, Bz: primitive variables (output)
-     */
-    void conservative_to_primitive(
-        const Eigen::VectorXd& U,
-        double& rho, double& u, double& v, double& w, double& p,
-        double& Bx, double& By, double& Bz
-    ) const;
-
-    /**
-     * Convert primitive variables to conservative variables.
-     * @param psi: GLM divergence cleaning scalar
-     */
-    void primitive_to_conservative(
-        double rho, double u, double v, double w, double p,
-        double Bx, double By, double Bz, double psi,
-        Eigen::VectorXd& U
-    ) const;
 
     // ========== Wave Speed Calculations ==========
 

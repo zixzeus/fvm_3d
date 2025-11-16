@@ -3,8 +3,15 @@
 namespace fvm3d::physics {
 
 Eigen::VectorXd ResistiveMHD3D::flux_x(const Eigen::VectorXd& U) const {
-    double rho, u, v, w, p, Bx, By, Bz;
-    conservative_to_primitive(U, rho, u, v, w, p, Bx, By, Bz);
+    Eigen::VectorXd V = conservative_to_primitive(U);
+    double rho = V(0);
+    double u = V(1);
+    double v = V(2);
+    double w = V(3);
+    double p = V(4);
+    double Bx = V(5);
+    double By = V(6);
+    double Bz = V(7);
 
     Eigen::VectorXd F(8);
     double B_sq = Bx*Bx + By*By + Bz*Bz;
@@ -31,8 +38,15 @@ Eigen::VectorXd ResistiveMHD3D::flux_x(const Eigen::VectorXd& U) const {
 }
 
 Eigen::VectorXd ResistiveMHD3D::flux_y(const Eigen::VectorXd& U) const {
-    double rho, u, v, w, p, Bx, By, Bz;
-    conservative_to_primitive(U, rho, u, v, w, p, Bx, By, Bz);
+    Eigen::VectorXd V = conservative_to_primitive(U);
+    double rho = V(0);
+    double u = V(1);
+    double v = V(2);
+    double w = V(3);
+    double p = V(4);
+    double Bx = V(5);
+    double By = V(6);
+    double Bz = V(7);
 
     Eigen::VectorXd G(8);
     double B_sq = Bx*Bx + By*By + Bz*Bz;
@@ -59,8 +73,15 @@ Eigen::VectorXd ResistiveMHD3D::flux_y(const Eigen::VectorXd& U) const {
 }
 
 Eigen::VectorXd ResistiveMHD3D::flux_z(const Eigen::VectorXd& U) const {
-    double rho, u, v, w, p, Bx, By, Bz;
-    conservative_to_primitive(U, rho, u, v, w, p, Bx, By, Bz);
+    Eigen::VectorXd V = conservative_to_primitive(U);
+    double rho = V(0);
+    double u = V(1);
+    double v = V(2);
+    double w = V(3);
+    double p = V(4);
+    double Bx = V(5);
+    double By = V(6);
+    double Bz = V(7);
 
     Eigen::VectorXd H(8);
     double B_sq = Bx*Bx + By*By + Bz*Bz;

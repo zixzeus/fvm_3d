@@ -3,8 +3,12 @@
 namespace fvm3d::physics {
 
 Eigen::VectorXd EulerEquations3D::flux_x(const Eigen::VectorXd& U) const {
-    double rho, u, v, w, p;
-    conservative_to_primitive(U, rho, u, v, w, p);
+    Eigen::VectorXd V = conservative_to_primitive(U);
+    double rho = V(0);
+    double u = V(1);
+    double v = V(2);
+    double w = V(3);
+    double p = V(4);
 
     Eigen::VectorXd flux(5);
     flux(0) = rho * u;
@@ -17,8 +21,12 @@ Eigen::VectorXd EulerEquations3D::flux_x(const Eigen::VectorXd& U) const {
 }
 
 Eigen::VectorXd EulerEquations3D::flux_y(const Eigen::VectorXd& U) const {
-    double rho, u, v, w, p;
-    conservative_to_primitive(U, rho, u, v, w, p);
+    Eigen::VectorXd V = conservative_to_primitive(U);
+    double rho = V(0);
+    double u = V(1);
+    double v = V(2);
+    double w = V(3);
+    double p = V(4);
 
     Eigen::VectorXd flux(5);
     flux(0) = rho * v;
@@ -31,8 +39,12 @@ Eigen::VectorXd EulerEquations3D::flux_y(const Eigen::VectorXd& U) const {
 }
 
 Eigen::VectorXd EulerEquations3D::flux_z(const Eigen::VectorXd& U) const {
-    double rho, u, v, w, p;
-    conservative_to_primitive(U, rho, u, v, w, p);
+    Eigen::VectorXd V = conservative_to_primitive(U);
+    double rho = V(0);
+    double u = V(1);
+    double v = V(2);
+    double w = V(3);
+    double p = V(4);
 
     Eigen::VectorXd flux(5);
     flux(0) = rho * w;

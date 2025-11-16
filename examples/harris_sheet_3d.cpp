@@ -196,8 +196,15 @@ Diagnostics compute_diagnostics(
                     U_vec(v) = U(v, i, j, k);
                 }
 
-                double rho, u, v, w, p, Bx, By, Bz;
-                mhd.conservative_to_primitive(U_vec, rho, u, v, w, p, Bx, By, Bz);
+                Eigen::VectorXd V_vec = mhd.conservative_to_primitive(U_vec);
+                double rho = V_vec(0);
+                double u = V_vec(1);
+                double v = V_vec(2);
+                double w = V_vec(3);
+                double p = V_vec(4);
+                double Bx = V_vec(5);
+                double By = V_vec(6);
+                double Bz = V_vec(7);
 
                 // Accumulate energies
                 auto E = mhd.compute_energies(U_vec);

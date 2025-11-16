@@ -31,8 +31,15 @@ public:
      * @return V: Primitive variables [rho, u, v, w, p]
      */
     Eigen::VectorXd conservative_to_primitive(const Eigen::VectorXd& U) const override {
-        double rho, u, v, w, p;
-        conservative_to_primitive(U, rho, u, v, w, p);
+        double rho = std::max(U(0), RHO_FLOOR);
+        double u = U(1) / rho;
+        double v = U(2) / rho;
+        double w = U(3) / rho;
+
+        // Direct kinetic energy calculation to avoid division issues
+        double kinetic_energy = 0.5 * (U(1)*U(1) + U(2)*U(2) + U(3)*U(3)) / rho;
+        double internal_energy = U(4) / rho - kinetic_energy;
+        double p = std::max((GAMMA - 1.0) * rho * internal_energy, P_FLOOR);
 
         Eigen::VectorXd V(nvars);
         V << rho, u, v, w, p;
@@ -45,8 +52,22 @@ public:
      * @return U: Conservative variables [rho, rho_u, rho_v, rho_w, E]
      */
     Eigen::VectorXd primitive_to_conservative(const Eigen::VectorXd& V) const override {
+        double rho = std::max(V(0), RHO_FLOOR);
+        double u = V(1);
+        double v = V(2);
+        double w = V(3);
+        double p = std::max(V(4), P_FLOOR);
+
         Eigen::VectorXd U(nvars);
-        primitive_to_conservative(V(0), V(1), V(2), V(3), V(4), U);
+        U(0) = rho;
+        U(1) = rho * u;
+        U(2) = rho * v;
+        U(3) = rho * w;
+
+        double kinetic_energy = 0.5 * rho * (u*u + v*v + w*w);
+        double internal_energy = p / ((GAMMA - 1.0) * rho);
+        U(4) = rho * internal_energy + kinetic_energy;
+
         return U;
     }
 
@@ -66,48 +87,6 @@ public:
         }
     }
 
-    // ========== Legacy Interface (for backwards compatibility) ==========
-
-    /**
-     * Convert conservative variables to primitive variables.
-     * @param U: conservative state [rho, rho_u, rho_v, rho_w, E]
-     * @param rho, u, v, w, p: primitive variables (output)
-     */
-    void conservative_to_primitive(
-        const Eigen::VectorXd& U,
-        double& rho, double& u, double& v, double& w, double& p
-    ) const {
-        rho = std::max(U(0), RHO_FLOOR);
-        u = U(1) / rho;
-        v = U(2) / rho;
-        w = U(3) / rho;
-
-        // Direct kinetic energy calculation to avoid division issues
-        double kinetic_energy = 0.5 * (U(1)*U(1) + U(2)*U(2) + U(3)*U(3)) / rho;
-        double internal_energy = U(4) / rho - kinetic_energy;
-        p = std::max((GAMMA - 1.0) * rho * internal_energy, P_FLOOR);
-    }
-
-    /**
-     * Convert primitive variables to conservative variables.
-     */
-    void primitive_to_conservative(
-        double rho, double u, double v, double w, double p,
-        Eigen::VectorXd& U
-    ) const {
-        rho = std::max(rho, RHO_FLOOR);
-        p = std::max(p, P_FLOOR);
-
-        U(0) = rho;
-        U(1) = rho * u;
-        U(2) = rho * v;
-        U(3) = rho * w;
-
-        double kinetic_energy = 0.5 * rho * (u*u + v*v + w*w);
-        double internal_energy = p / ((GAMMA - 1.0) * rho);
-        U(4) = rho * internal_energy + kinetic_energy;
-    }
-
     /**
      * Compute sound speed: a = sqrt(gamma * p / rho)
      */
@@ -122,8 +101,12 @@ public:
      * Used for CFL condition.
      */
     double max_wave_speed(const Eigen::VectorXd& U, int direction) const override {
-        double rho, u, v, w, p;
-        conservative_to_primitive(U, rho, u, v, w, p);
+        Eigen::VectorXd V = conservative_to_primitive(U);
+        double rho = V(0);
+        double u = V(1);
+        double v = V(2);
+        double w = V(3);
+        double p = V(4);
 
         double u_normal = (direction == 0) ? u : (direction == 1) ? v : w;
         double a = sound_speed(rho, p);

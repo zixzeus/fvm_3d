@@ -3,74 +3,6 @@
 
 namespace fvm3d::physics {
 
-// ========== Variable Conversion ==========
-
-void AdvancedResistiveMHD3D::conservative_to_primitive(
-    const Eigen::VectorXd& U,
-    double& rho, double& u, double& v, double& w, double& p,
-    double& Bx, double& By, double& Bz
-) const {
-    if (U.size() != nvars) {
-        throw std::invalid_argument("Invalid U vector size");
-    }
-
-    // Density with floor
-    rho = std::max(U(0), RHO_FLOOR);
-
-    // Velocity components
-    u = U(1) / rho;
-    v = U(2) / rho;
-    w = U(3) / rho;
-
-    // Magnetic field (directly from conservative)
-    Bx = U(5);
-    By = U(6);
-    Bz = U(7);
-
-    // Compute energies
-    double u_sq = u*u + v*v + w*w;
-    double B_sq = Bx*Bx + By*By + Bz*Bz;
-    double kinetic_energy = 0.5 * rho * u_sq;
-    double magnetic_energy = 0.5 * B_sq / MU0;
-
-    // Extract pressure from total energy
-    // E = rho*e_int + 0.5*rho*u² + 0.5*B²
-    // e_int = (p/(ρ(γ-1)) + kinetic + magnetic)/ρ
-    double internal_energy = U(4) / rho - 0.5 * u_sq - (B_sq / (2.0 * MU0 * rho));
-    p = std::max((GAMMA - 1.0) * rho * internal_energy, P_FLOOR);
-}
-
-void AdvancedResistiveMHD3D::primitive_to_conservative(
-    double rho, double u, double v, double w, double p,
-    double Bx, double By, double Bz, double psi,
-    Eigen::VectorXd& U
-) const {
-    if (U.size() != nvars) {
-        U.resize(nvars);
-    }
-
-    rho = std::max(rho, RHO_FLOOR);
-    p = std::max(p, P_FLOOR);
-
-    U(0) = rho;
-    U(1) = rho * u;
-    U(2) = rho * v;
-    U(3) = rho * w;
-    U(5) = Bx;
-    U(6) = By;
-    U(7) = Bz;
-    U(8) = psi;  // GLM field
-
-    // Total energy density
-    double u_sq = u*u + v*v + w*w;
-    double B_sq = Bx*Bx + By*By + Bz*Bz;
-    double kinetic_energy = 0.5 * rho * u_sq;
-    double internal_energy = p / ((GAMMA - 1.0) * rho);
-    double magnetic_energy = 0.5 * B_sq / MU0;
-
-    U(4) = rho * internal_energy + kinetic_energy + magnetic_energy;
-}
-
 // ========== Wave Speed Calculations ==========
 
 double AdvancedResistiveMHD3D::sound_speed(double rho, double p) const {
@@ -98,8 +30,15 @@ double AdvancedResistiveMHD3D::fast_speed(
 double AdvancedResistiveMHD3D::max_wave_speed(
     const Eigen::VectorXd& U, int direction
 ) const {
-    double rho, u, v, w, p, Bx, By, Bz;
-    conservative_to_primitive(U, rho, u, v, w, p, Bx, By, Bz);
+    Eigen::VectorXd V = conservative_to_primitive(U);
+    double rho = V(0);
+    double u = V(1);
+    double v = V(2);
+    double w = V(3);
+    double p = V(4);
+    double Bx = V(5);
+    double By = V(6);
+    double Bz = V(7);
 
     double u_normal = (direction == 0) ? u : (direction == 1) ? v : w;
     double a = sound_speed(rho, p);
@@ -115,8 +54,15 @@ double AdvancedResistiveMHD3D::max_wave_speed(
 Eigen::VectorXd AdvancedResistiveMHD3D::flux_x(
     const Eigen::VectorXd& U, double x, double y, double z
 ) const {
-    double rho, u, v, w, p, Bx, By, Bz;
-    conservative_to_primitive(U, rho, u, v, w, p, Bx, By, Bz);
+    Eigen::VectorXd V = conservative_to_primitive(U);
+    double rho = V(0);
+    double u = V(1);
+    double v = V(2);
+    double w = V(3);
+    double p = V(4);
+    double Bx = V(5);
+    double By = V(6);
+    double Bz = V(7);
 
     Eigen::VectorXd F(nvars);
     double B_sq = Bx*Bx + By*By + Bz*Bz;
@@ -150,8 +96,15 @@ Eigen::VectorXd AdvancedResistiveMHD3D::flux_x(
 Eigen::VectorXd AdvancedResistiveMHD3D::flux_y(
     const Eigen::VectorXd& U, double x, double y, double z
 ) const {
-    double rho, u, v, w, p, Bx, By, Bz;
-    conservative_to_primitive(U, rho, u, v, w, p, Bx, By, Bz);
+    Eigen::VectorXd V = conservative_to_primitive(U);
+    double rho = V(0);
+    double u = V(1);
+    double v = V(2);
+    double w = V(3);
+    double p = V(4);
+    double Bx = V(5);
+    double By = V(6);
+    double Bz = V(7);
 
     Eigen::VectorXd G(nvars);
     double B_sq = Bx*Bx + By*By + Bz*Bz;
@@ -184,8 +137,15 @@ Eigen::VectorXd AdvancedResistiveMHD3D::flux_y(
 Eigen::VectorXd AdvancedResistiveMHD3D::flux_z(
     const Eigen::VectorXd& U, double x, double y, double z
 ) const {
-    double rho, u, v, w, p, Bx, By, Bz;
-    conservative_to_primitive(U, rho, u, v, w, p, Bx, By, Bz);
+    Eigen::VectorXd V = conservative_to_primitive(U);
+    double rho = V(0);
+    double u = V(1);
+    double v = V(2);
+    double w = V(3);
+    double p = V(4);
+    double Bx = V(5);
+    double By = V(6);
+    double Bz = V(7);
 
     Eigen::VectorXd H(nvars);
     double B_sq = Bx*Bx + By*By + Bz*Bz;
@@ -418,11 +378,11 @@ Eigen::VectorXd AdvancedResistiveMHD3D::harris_sheet_initial(
 
     // Initialize with zero velocity and GLM field
     double u = 0.0, v = 0.0, w = 0.0;
-    double psi = 0.0;
 
-    Eigen::VectorXd U(nvars);
-    primitive_to_conservative(rho, u, v, w, p, Bx, By, Bz, psi, U);
+    Eigen::VectorXd V(8);
+    V << rho, u, v, w, p, Bx, By, Bz;
 
+    Eigen::VectorXd U = primitive_to_conservative(V);
     return U;
 }
 
@@ -434,10 +394,11 @@ Eigen::VectorXd AdvancedResistiveMHD3D::uniform_field_initial(
     double Bx = Bx0 * (1.0 + perturbation);
     double By = By0 * (1.0 + perturbation);
     double Bz = Bz0 * (1.0 + perturbation);
-    double psi = 0.0;
 
-    Eigen::VectorXd U(nvars);
-    primitive_to_conservative(rho0, u, v, w, p0, Bx, By, Bz, psi, U);
+    Eigen::VectorXd V(8);
+    V << rho0, u, v, w, p0, Bx, By, Bz;
+
+    Eigen::VectorXd U = primitive_to_conservative(V);
     return U;
 }
 
@@ -457,8 +418,15 @@ bool AdvancedResistiveMHD3D::is_valid_state(const Eigen::VectorXd& U) const {
 Eigen::Vector4d AdvancedResistiveMHD3D::compute_energies(
     const Eigen::VectorXd& U
 ) const {
-    double rho, u, v, w, p, Bx, By, Bz;
-    conservative_to_primitive(U, rho, u, v, w, p, Bx, By, Bz);
+    Eigen::VectorXd V = conservative_to_primitive(U);
+    double rho = V(0);
+    double u = V(1);
+    double v = V(2);
+    double w = V(3);
+    double p = V(4);
+    double Bx = V(5);
+    double By = V(6);
+    double Bz = V(7);
 
     double kinetic = 0.5 * rho * (u*u + v*v + w*w);
     double magnetic = 0.5 * (Bx*Bx + By*By + Bz*Bz) / MU0;

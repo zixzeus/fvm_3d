@@ -52,27 +52,23 @@ public:
         : ConservationLaw("ResistiveMHD3D", nvars, 3), eta_(resistivity) {}
 
     /**
-     * Convert conservative variables to primitive variables.
-     * @param U: conservative state [rho, rho_u, rho_v, rho_w, E, Bx, By, Bz]
-     * @param rho, u, v, w, p, Bx, By, Bz: primitive variables (output)
+     * Convert conservative to primitive variables (PhysicsBase interface).
+     * @param U: Conservative variables [rho, rho_u, rho_v, rho_w, E, Bx, By, Bz]
+     * @return V: Primitive variables [rho, u, v, w, p, Bx, By, Bz]
      */
-    void conservative_to_primitive(
-        const Eigen::VectorXd& U,
-        double& rho, double& u, double& v, double& w, double& p,
-        double& Bx, double& By, double& Bz
-    ) const {
+    Eigen::VectorXd conservative_to_primitive(const Eigen::VectorXd& U) const override {
         // Density with floor
-        rho = std::max(U(0), RHO_FLOOR);
+        double rho = std::max(U(0), RHO_FLOOR);
 
         // Velocity
-        u = U(1) / rho;
-        v = U(2) / rho;
-        w = U(3) / rho;
+        double u = U(1) / rho;
+        double v = U(2) / rho;
+        double w = U(3) / rho;
 
         // Magnetic field (directly from conservative)
-        Bx = U(5);
-        By = U(6);
-        Bz = U(7);
+        double Bx = U(5);
+        double By = U(6);
+        double Bz = U(7);
 
         // Compute kinetic and magnetic energy
         double u_sq = u*u + v*v + w*w;
@@ -82,20 +78,29 @@ public:
 
         // Internal energy
         double internal_energy = U(4) / rho - 0.5 * u_sq - (B_sq / (2.0 * MU0 * rho));
-        p = std::max((GAMMA - 1.0) * rho * internal_energy, P_FLOOR);
+        double p = std::max((GAMMA - 1.0) * rho * internal_energy, P_FLOOR);
+
+        Eigen::VectorXd V(nvars);
+        V << rho, u, v, w, p, Bx, By, Bz;
+        return V;
     }
 
     /**
-     * Convert primitive variables to conservative variables.
+     * Convert primitive to conservative variables (PhysicsBase interface).
+     * @param V: Primitive variables [rho, u, v, w, p, Bx, By, Bz]
+     * @return U: Conservative variables [rho, rho_u, rho_v, rho_w, E, Bx, By, Bz]
      */
-    void primitive_to_conservative(
-        double rho, double u, double v, double w, double p,
-        double Bx, double By, double Bz,
-        Eigen::VectorXd& U
-    ) const {
-        rho = std::max(rho, RHO_FLOOR);
-        p = std::max(p, P_FLOOR);
+    Eigen::VectorXd primitive_to_conservative(const Eigen::VectorXd& V) const override {
+        double rho = std::max(V(0), RHO_FLOOR);
+        double u = V(1);
+        double v = V(2);
+        double w = V(3);
+        double p = std::max(V(4), P_FLOOR);
+        double Bx = V(5);
+        double By = V(6);
+        double Bz = V(7);
 
+        Eigen::VectorXd U(nvars);
         U(0) = rho;
         U(1) = rho * u;
         U(2) = rho * v;
@@ -112,6 +117,7 @@ public:
         double magnetic_energy = 0.5 * B_sq / MU0;
 
         U(4) = rho * internal_energy + kinetic_energy + magnetic_energy;
+        return U;
     }
 
     /**
@@ -152,8 +158,15 @@ public:
      * @param direction: 0=X, 1=Y, 2=Z
      */
     double max_wave_speed(const Eigen::VectorXd& U, int direction) const override {
-        double rho, u, v, w, p, Bx, By, Bz;
-        conservative_to_primitive(U, rho, u, v, w, p, Bx, By, Bz);
+        Eigen::VectorXd V = conservative_to_primitive(U);
+        double rho = V(0);
+        double u = V(1);
+        double v = V(2);
+        double w = V(3);
+        double p = V(4);
+        double Bx = V(5);
+        double By = V(6);
+        double Bz = V(7);
 
         double u_normal = (direction == 0) ? u : (direction == 1) ? v : w;
         double a = sound_speed(rho, p);
