@@ -5,7 +5,7 @@
 namespace fvm3d::spatial {
 
 HLLCSolver::HLLCSolver(const std::shared_ptr<physics::PhysicsBase>& physics)
-    : physics_(physics) {
+    : RiemannSolver(physics) {
     if (!physics_) {
         throw std::invalid_argument("HLLCSolver: physics object cannot be null");
     }
@@ -148,7 +148,7 @@ double HLLCSolver::estimate_p_middle(
     double numerator = a_R * p_L + a_L * p_R + a_L * a_R * (u_normal_L - u_normal_R);
     double denominator = a_L + a_R;
 
-    return std::max(numerator / denominator, P_FLOOR);
+    return std::max(numerator / denominator, physics_->p_floor());
 }
 
 double HLLCSolver::estimate_s_contact(

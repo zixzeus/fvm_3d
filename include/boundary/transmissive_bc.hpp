@@ -16,9 +16,19 @@ class TransmissiveBC : public BoundaryCondition {
 public:
     /**
      * Constructor specifies which directions have transmissive boundaries.
+     * @param physics: Physics object for variable conversion
+     * @param transmissive_x/y/z: Enable transmissive BC in each direction
      */
-    TransmissiveBC(bool transmissive_x = false, bool transmissive_y = false, bool transmissive_z = false)
-        : transmissive_x_(transmissive_x), transmissive_y_(transmissive_y), transmissive_z_(transmissive_z) {}
+    TransmissiveBC(
+        const std::shared_ptr<physics::PhysicsBase>& physics,
+        bool transmissive_x = false,
+        bool transmissive_y = false,
+        bool transmissive_z = false
+    )
+        : BoundaryCondition(physics),
+          transmissive_x_(transmissive_x),
+          transmissive_y_(transmissive_y),
+          transmissive_z_(transmissive_z) {}
 
     void apply(StateField3D& state, const Grid3D& grid) override;
     std::string name() const override { return "Transmissive"; }

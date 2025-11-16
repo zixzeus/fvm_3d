@@ -66,6 +66,9 @@ int main(int argc, char** argv) {
               << "  dx, dy, dz = " << geom.dx << ", " << geom.dy << ", " << geom.dz << "\n"
               << "  Ghost cells: " << grid.nghost() << "\n\n";
 
+    // Create physics object
+    auto physics = std::make_shared<physics::EulerEquations3D>();
+
     // Create state field (conservative variables)
     core::StateField3D state(5, grid.nx_total(), grid.ny_total(), grid.nz_total());
     state.fill(0.0);
@@ -90,7 +93,7 @@ int main(int argc, char** argv) {
     }
 
     // Apply boundary conditions
-    boundary::PeriodicBC bc(true, true, true);
+    boundary::PeriodicBC bc(physics, true, true, true);
     bc.apply(state, grid);
 
     std::cout << "Initial condition set.\n\n";
@@ -100,14 +103,11 @@ int main(int argc, char** argv) {
     int j_center = grid.j_begin() + geom.ny / 2;
     int k_center = grid.k_begin() + geom.nz / 2;
 
-    physics::EulerEquations3D euler;
-
     Eigen::VectorXd U_center(5);
     for (int v = 0; v < 5; v++) {
         U_center(v) = state(v, i_center, j_center, k_center);
     }
-
-    double rho, u, v, w, p;
+    
     Eigen::VectorXd dummy(5);
 
     std::cout << std::fixed << std::setprecision(6);
@@ -130,8 +130,8 @@ int main(int argc, char** argv) {
 
     for (const auto& calc_name : flux_calc_names) {
         auto flux_calc = spatial::FluxCalculatorFactory::create(calc_name, "euler");
-        Eigen::VectorXd flux = flux_calc->compute_flux(U_L, U_R, euler, 0);
-        double wave_speed = flux_calc->compute_max_wave_speed(U_L, U_R, euler, 0);
+        Eigen::VectorXd flux = flux_calc->compute_flux(U_L, U_R, *physics, 0);
+        double wave_speed = flux_calc->compute_max_wave_speed(U_L, U_R, *physics, 0);
 
         std::cout << "  " << flux_calc->name() << ":\n";
         std::cout << "    Flux = [" << flux.transpose() << "]\n";

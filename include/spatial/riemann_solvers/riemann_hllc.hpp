@@ -40,8 +40,6 @@ public:
     std::string name() const override { return "HLLC"; }
 
 private:
-    std::shared_ptr<physics::PhysicsBase> physics_;  // Physics object for flux calculation
-
     /**
      * Estimate left and right wave speeds.
      */

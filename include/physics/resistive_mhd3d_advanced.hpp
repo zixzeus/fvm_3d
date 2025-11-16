@@ -123,7 +123,7 @@ public:
     explicit AdvancedResistiveMHD3D(
         const ResistivityModel& res_model = ResistivityModel(),
         const GLMParameters& glm = GLMParameters()
-    ) : ConservationLaw("AdvancedResistiveMHD3D", nvars, 3),
+    ) : ConservationLaw("AdvancedResistiveMHD3D", nvars, 3, PhysicsType::MHD_ADVANCED),
         resistivity_model_(res_model), glm_params_(glm) {}
 
     // ========== PhysicsBase Interface Implementation ==========
@@ -374,6 +374,14 @@ private:
         const Eigen::VectorXd& U_ym, const Eigen::VectorXd& U_yp,
         const Eigen::VectorXd& U_zm, const Eigen::VectorXd& U_zp
     ) const;
+
+    // ========== Physics Constants Accessors (PhysicsBase interface) ==========
+
+    double gamma() const override { return GAMMA; }
+    double rho_floor() const override { return RHO_FLOOR; }
+    double p_floor() const override { return P_FLOOR; }
+    double mu0() const override { return MU0; }
+    double b_floor() const override { return B_FLOOR; }
 };
 
 } // namespace fvm3d::physics

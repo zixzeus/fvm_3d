@@ -21,7 +21,7 @@ public:
     // ========== Constructor ==========
 
     explicit EulerEquations3D()
-        : ConservationLaw("Euler3D", nvars, 3) {}
+        : ConservationLaw("Euler3D", nvars, 3, PhysicsType::EULER) {}
 
     // ========== PhysicsBase Interface Implementation ==========
 
@@ -131,6 +131,12 @@ public:
      * H = [rho*w, rho*w*u, rho*w*v, rho*w*w+p, (E+p)*w]
      */
     Eigen::VectorXd flux_z(const Eigen::VectorXd& U) const;
+
+    // ========== Physics Constants Accessors (PhysicsBase interface) ==========
+
+    double gamma() const override { return GAMMA; }
+    double rho_floor() const override { return RHO_FLOOR; }
+    double p_floor() const override { return P_FLOOR; }
 };
 
 } // namespace fvm3d::physics

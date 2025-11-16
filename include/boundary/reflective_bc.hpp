@@ -15,9 +15,19 @@ class ReflectiveBC : public BoundaryCondition {
 public:
     /**
      * Constructor specifies which directions have reflective boundaries.
+     * @param physics: Physics object for variable conversion
+     * @param reflect_x/y/z: Enable reflective BC in each direction
      */
-    ReflectiveBC(bool reflect_x = true, bool reflect_y = false, bool reflect_z = false)
-        : reflect_x_(reflect_x), reflect_y_(reflect_y), reflect_z_(reflect_z) {}
+    ReflectiveBC(
+        const std::shared_ptr<physics::PhysicsBase>& physics,
+        bool reflect_x = true,
+        bool reflect_y = false,
+        bool reflect_z = false
+    )
+        : BoundaryCondition(physics),
+          reflect_x_(reflect_x),
+          reflect_y_(reflect_y),
+          reflect_z_(reflect_z) {}
 
     void apply(StateField3D& state, const Grid3D& grid) override;
     std::string name() const override { return "Reflective"; }

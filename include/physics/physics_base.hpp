@@ -8,6 +8,17 @@
 namespace fvm3d::physics {
 
 /**
+ * Physics equation type enumeration.
+ * Provides explicit type identification instead of inferring from num_vars.
+ */
+enum class PhysicsType {
+    EULER,              ///< Compressible Euler equations (gas dynamics)
+    MHD,                ///< Magnetohydrodynamics (basic)
+    MHD_ADVANCED,       ///< Advanced MHD with GLM divergence cleaning
+    CUSTOM              ///< Custom physics (user-defined)
+};
+
+/**
  * Abstract base class for physics equations.
  *
  * Defines the standard interface that all physics equation implementations
@@ -25,9 +36,10 @@ public:
      * Constructor.
      * @param name: Human-readable name of the physics equations
      * @param num_variables: Number of conservative variables
+     * @param type: Type of physics (default: CUSTOM)
      */
-    PhysicsBase(const std::string& name, int num_variables)
-        : name_(name), num_variables_(num_variables) {}
+    PhysicsBase(const std::string& name, int num_variables, PhysicsType type = PhysicsType::CUSTOM)
+        : name_(name), num_variables_(num_variables), type_(type) {}
 
     virtual ~PhysicsBase() = default;
 
@@ -177,6 +189,12 @@ public:
     int num_variables() const { return num_variables_; }
 
     /**
+     * Get physics type identifier.
+     * Provides explicit type checking instead of relying on num_variables.
+     */
+    PhysicsType physics_type() const { return type_; }
+
+    /**
      * Get names of conservative variables.
      * Override in derived classes for physics-specific names.
      *
@@ -222,9 +240,56 @@ public:
         return false;
     }
 
+    // ========== Physics Constants Accessors ==========
+
+    /**
+     * Get adiabatic index (ratio of specific heats).
+     * For ideal gas: gamma = cp/cv = 1.4 (air)
+     * For MHD: same as gas gamma
+     * Override in derived classes that use gamma.
+     */
+    virtual double gamma() const {
+        return 1.4;  // Default for ideal gas
+    }
+
+    /**
+     * Get minimum density floor (for numerical stability).
+     * Override in derived classes with specific requirements.
+     */
+    virtual double rho_floor() const {
+        return 1e-10;
+    }
+
+    /**
+     * Get minimum pressure floor (for numerical stability).
+     * Override in derived classes with specific requirements.
+     */
+    virtual double p_floor() const {
+        return 1e-11;
+    }
+
+    /**
+     * Get magnetic permeability (for MHD).
+     * Only relevant for MHD physics, returns 1.0 by default (normalized units).
+     * Override in MHD classes if needed.
+     */
+    virtual double mu0() const {
+        return 1.0;
+    }
+
+    /**
+     * Get minimum magnetic field floor (for MHD numerical stability).
+     * Only relevant for MHD physics, returns 0.0 by default.
+     * Override in MHD classes with specific requirements.
+     */
+    virtual double b_floor() const {
+        return 0.0;
+    }
+
 protected:
     std::string name_;         ///< Human-readable name
     int num_variables_;        ///< Number of conservative variables
+    PhysicsType type_;         ///< Physics type identifier
 };
 
 /**
@@ -243,9 +308,10 @@ public:
      * @param name: Name of the conservation law
      * @param num_variables: Number of conservative variables
      * @param num_dimensions: Spatial dimensions (default: 3)
+     * @param type: Type of physics (default: CUSTOM)
      */
-    ConservationLaw(const std::string& name, int num_variables, int num_dimensions = 3)
-        : PhysicsBase(name, num_variables), num_dimensions_(num_dimensions) {}
+    ConservationLaw(const std::string& name, int num_variables, int num_dimensions = 3, PhysicsType type = PhysicsType::CUSTOM)
+        : PhysicsBase(name, num_variables, type), num_dimensions_(num_dimensions) {}
 
     virtual ~ConservationLaw() = default;
 

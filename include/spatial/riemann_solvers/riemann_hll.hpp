@@ -36,8 +36,6 @@ public:
     std::string name() const override { return "HLL"; }
 
 private:
-    std::shared_ptr<physics::PhysicsBase> physics_;  // Physics object for flux calculation
-
     double estimate_s_left(
         const Eigen::VectorXd& U_L,
         const Eigen::VectorXd& U_R,

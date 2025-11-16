@@ -112,15 +112,15 @@ MPIFVMSolver3D::MPIFVMSolver3D(const MPIFVMSolverConfig& config)
     // Initialize boundary conditions
     if (config.boundary_condition == "periodic") {
         boundary_condition_ = std::make_unique<boundary::PeriodicBC>(
-            config.bc_x, config.bc_y, config.bc_z
+            physics_, config.bc_x, config.bc_y, config.bc_z
         );
     } else if (config.boundary_condition == "reflective") {
         boundary_condition_ = std::make_unique<boundary::ReflectiveBC>(
-            config.bc_x, config.bc_y, config.bc_z
+            physics_, config.bc_x, config.bc_y, config.bc_z
         );
     } else if (config.boundary_condition == "transmissive") {
         boundary_condition_ = std::make_unique<boundary::TransmissiveBC>(
-            config.bc_x, config.bc_y, config.bc_z
+            physics_, config.bc_x, config.bc_y, config.bc_z
         );
     } else {
         throw std::invalid_argument("Unknown boundary condition: " + config.boundary_condition);

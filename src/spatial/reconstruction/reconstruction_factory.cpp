@@ -4,6 +4,8 @@
 #include <iostream>
 #include <algorithm>
 #include <stdexcept>
+#include <unordered_map>
+#include <functional>
 
 namespace fvm3d::spatial {
 
@@ -13,22 +15,46 @@ std::unique_ptr<ReconstructionMethod> ReconstructionFactory::create(
     const std::string& limiter,
     double kappa
 ) {
+    using CreatorFunc = std::function<std::unique_ptr<ReconstructionMethod>(int, const std::string&, double)>;
+
+    // Registry with lambda creators for each reconstruction method
+    static const std::unordered_map<std::string, CreatorFunc> registry = {
+        // Constant reconstruction and aliases
+        {"constant", [](int n, const std::string&, double) {
+            return std::make_unique<ConstantReconstruction>(n);
+        }},
+        {"1st", [](int n, const std::string&, double) {
+            return std::make_unique<ConstantReconstruction>(n);
+        }},
+        {"first", [](int n, const std::string&, double) {
+            return std::make_unique<ConstantReconstruction>(n);
+        }},
+
+        // MUSCL reconstruction and aliases
+        {"muscl", [](int n, const std::string& lim, double k) {
+            return std::make_unique<MUSCLReconstruction>(n, lim, k);
+        }},
+        {"2nd", [](int n, const std::string& lim, double k) {
+            return std::make_unique<MUSCLReconstruction>(n, lim, k);
+        }},
+        {"second", [](int n, const std::string& lim, double k) {
+            return std::make_unique<MUSCLReconstruction>(n, lim, k);
+        }}
+    };
+
     // Convert name to lowercase for case-insensitive matching
     std::string name_lower = name;
     std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(), ::tolower);
 
-    if (name_lower == "constant" || name_lower == "1st" || name_lower == "first") {
-        return std::make_unique<ConstantReconstruction>(num_vars);
+    auto it = registry.find(name_lower);
+    if (it != registry.end()) {
+        return it->second(num_vars, limiter, kappa);
     }
-    else if (name_lower == "muscl" || name_lower == "2nd" || name_lower == "second") {
-        return std::make_unique<MUSCLReconstruction>(num_vars, limiter, kappa);
-    }
-    else {
-        throw std::invalid_argument(
-            "ReconstructionFactory: Unknown reconstruction method '" + name + "'. "
-            "Supported methods: constant, muscl"
-        );
-    }
+
+    throw std::invalid_argument(
+        "ReconstructionFactory: Unknown reconstruction method '" + name + "'. "
+        "Supported methods: constant, muscl"
+    );
 }
 
 std::vector<std::string> ReconstructionFactory::supported_methods() {
@@ -40,13 +66,15 @@ std::vector<std::string> ReconstructionFactory::supported_methods() {
 }
 
 bool ReconstructionFactory::is_available(const std::string& name) {
+    static const std::unordered_map<std::string, bool> valid_names = {
+        {"constant", true}, {"1st", true}, {"first", true},
+        {"muscl", true}, {"2nd", true}, {"second", true}
+    };
+
     std::string name_lower = name;
     std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(), ::tolower);
 
-    auto methods = supported_methods();
-    return std::find(methods.begin(), methods.end(), name_lower) != methods.end() ||
-           name_lower == "1st" || name_lower == "first" ||
-           name_lower == "2nd" || name_lower == "second";
+    return valid_names.count(name_lower) > 0;
 }
 
 void ReconstructionFactory::print_available() {

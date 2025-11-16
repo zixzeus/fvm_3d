@@ -5,7 +5,7 @@
 namespace fvm3d::spatial {
 
 HLLDSolver::HLLDSolver(const std::shared_ptr<physics::AdvancedResistiveMHD3D>& mhd)
-    : mhd_(mhd) {
+    : RiemannSolver(mhd), mhd_(mhd) {
     if (!mhd_) {
         throw std::invalid_argument("MHD physics object cannot be null");
     }

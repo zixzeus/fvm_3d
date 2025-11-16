@@ -3,6 +3,7 @@
 #include <Eigen/Dense>
 #include <memory>
 #include <string>
+#include "physics/physics_base.hpp"
 
 namespace fvm3d::spatial {
 
@@ -11,6 +12,13 @@ namespace fvm3d::spatial {
  */
 class RiemannSolver {
 public:
+    /**
+     * Constructor with physics object.
+     * @param physics: Physics equation system for getting constants and methods
+     */
+    explicit RiemannSolver(const std::shared_ptr<physics::PhysicsBase>& physics)
+        : physics_(physics) {}
+
     virtual ~RiemannSolver() = default;
 
     /**
@@ -40,44 +48,46 @@ public:
      */
     virtual std::string name() const = 0;
 
-    virtual int num_variables() const { return 5; }
+    virtual int num_variables() const { return physics_->num_variables(); }
 
 protected:
-    static constexpr double GAMMA = 1.4;
-    static constexpr double RHO_FLOOR = 1e-10;
-    static constexpr double P_FLOOR = 1e-11;
+    std::shared_ptr<physics::PhysicsBase> physics_;  ///< Physics object for constants and methods
 
     /**
      * Extract primitive variables from conservative variables.
+     * Uses physics object's conversion method.
      */
     void conservative_to_primitive(
         const Eigen::VectorXd& U,
         double& rho, double& u, double& v, double& w, double& p
     ) const {
-        rho = std::max(U(0), RHO_FLOOR);
-        u = U(1) / rho;
-        v = U(2) / rho;
-        w = U(3) / rho;
-
-        double kinetic_energy = 0.5 * (U(1)*U(1) + U(2)*U(2) + U(3)*U(3)) / rho;
-        double internal_energy = U(4) / rho - kinetic_energy;
-        p = std::max((GAMMA - 1.0) * rho * internal_energy, P_FLOOR);
+        Eigen::VectorXd V = physics_->conservative_to_primitive(U);
+        rho = V(0);
+        u = V(1);
+        v = V(2);
+        w = V(3);
+        p = V(4);
     }
 
     /**
      * Compute speed of sound.
+     * Uses physics object's gamma constant.
      */
     double sound_speed(double rho, double p) const {
-        rho = std::max(rho, RHO_FLOOR);
-        p = std::max(p, P_FLOOR);
-        return std::sqrt(GAMMA * p / rho);
+        double gamma = physics_->gamma();
+        double rho_floor = physics_->rho_floor();
+        double p_floor = physics_->p_floor();
+
+        rho = std::max(rho, rho_floor);
+        p = std::max(p, p_floor);
+        return std::sqrt(gamma * p / rho);
     }
 
     /**
      * Extract velocity component in a given direction.
      */
     double velocity_in_direction(const Eigen::VectorXd& U, int direction) const {
-        double rho = std::max(U(0), RHO_FLOOR);
+        double rho = std::max(U(0), physics_->rho_floor());
         return U(direction + 1) / rho;
     }
 };

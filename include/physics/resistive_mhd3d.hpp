@@ -49,7 +49,7 @@ public:
      * @param resistivity: Ohmic resistivity eta (0 for ideal MHD)
      */
     explicit ResistiveMHD3D(double resistivity = 0.0)
-        : ConservationLaw("ResistiveMHD3D", nvars, 3), eta_(resistivity) {}
+        : ConservationLaw("ResistiveMHD3D", nvars, 3, PhysicsType::MHD), eta_(resistivity) {}
 
     /**
      * Convert conservative to primitive variables (PhysicsBase interface).
@@ -235,6 +235,14 @@ public:
      * Set resistivity coefficient.
      */
     void set_resistivity(double eta) { eta_ = eta; }
+
+    // ========== Physics Constants Accessors (PhysicsBase interface) ==========
+
+    double gamma() const override { return GAMMA; }
+    double rho_floor() const override { return RHO_FLOOR; }
+    double p_floor() const override { return P_FLOOR; }
+    double mu0() const override { return MU0; }
+    double b_floor() const override { return B_FLOOR; }
 
 private:
     double eta_;  // Resistivity coefficient

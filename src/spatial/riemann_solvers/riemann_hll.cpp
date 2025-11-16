@@ -5,7 +5,7 @@
 namespace fvm3d::spatial {
 
 HLLSolver::HLLSolver(const std::shared_ptr<physics::PhysicsBase>& physics)
-    : physics_(physics) {
+    : RiemannSolver(physics) {
     if (!physics_) {
         throw std::invalid_argument("HLLSolver: physics object cannot be null");
     }
