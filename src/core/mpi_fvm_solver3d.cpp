@@ -339,14 +339,12 @@ void MPIFVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out) {
     // Optimization: reuse Eigen vectors to reduce allocations
     Eigen::VectorXd U_L(nvars), U_R(nvars), F(nvars);
 
-    // Loop over interior cell interfaces (need ng+1 interfaces for ng interior cells)
-    const int imax = (direction == 0) ? nx + 1 : nx;
-    const int jmax = (direction == 1) ? ny + 1 : ny;
-    const int kmax = (direction == 2) ? nz + 1 : nz;
-
-    for (int i = 0; i <= imax; i++) {
-        for (int j = 0; j <= jmax; j++) {
-            for (int k = 0; k <= kmax; k++) {
+    // Loop over interior cells to compute fluxes at their interfaces
+    // MUSCL needs stencil [i-1, i, i+1, i+2], so we can safely compute
+    // fluxes from i=ng to i=ng+nx-1 (which accesses up to ng+nx+1)
+    for (int i = 0; i < nx; i++) {
+        for (int j = 0; j < ny; j++) {
+            for (int k = 0; k < nz; k++) {
                 // Interface indices (in total grid including ghosts)
                 const int ii = i + ng;
                 const int jj = j + ng;
