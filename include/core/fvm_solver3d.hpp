@@ -152,6 +152,11 @@ private:
         double min_rho, max_rho;
         double min_p, max_p;
         double min_speed, max_speed;
+        double kinetic_energy;
+        double magnetic_energy;
+        double internal_energy;
+        double total_energy;
+        double max_div_B;
     } stats_;
 
     /**
@@ -182,9 +187,20 @@ private:
     double compute_dt();
 
     /**
-     * Compute statistics (min/max values).
+     * Compute statistics (min/max values, energies, div(B)).
      */
     void compute_statistics();
+
+    /**
+     * Apply positivity-preserving limiter to ensure ρ > 0 and p > 0.
+     * This prevents negative density and pressure that can cause crashes.
+     */
+    void apply_positivity_limiter();
+
+    /**
+     * Compute maximum divergence of magnetic field.
+     */
+    double compute_max_div_B() const;
 
     /**
      * Print progress information.

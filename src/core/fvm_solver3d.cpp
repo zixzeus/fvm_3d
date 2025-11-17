@@ -234,6 +234,10 @@ void FVMSolver3D::step() {
         }
     }
 
+    // ========== POSITIVITY LIMITER ==========
+    // Ensure ρ > 0 and p > 0 after time evolution
+    apply_positivity_limiter();
+
     // Apply boundary conditions
     apply_boundary_conditions();
 
@@ -499,6 +503,9 @@ void FVMSolver3D::compute_statistics() {
     double max_p = -1e10;
     double min_speed = 1e10;
     double max_speed = -1e10;
+    double kinetic_energy = 0.0;
+    double magnetic_energy = 0.0;
+    double internal_energy = 0.0;
 
     const int i_begin = grid_.i_begin();
     const int i_end = grid_.i_end();
@@ -508,9 +515,13 @@ void FVMSolver3D::compute_statistics() {
     const int k_end = grid_.k_end();
     const int nvars = config_.num_vars;
 
-    // OpenMP parallel reduction for min/max statistics
-    // Each thread computes local min/max, then reduce to global
-    #pragma omp parallel reduction(min:min_rho,min_p,min_speed) reduction(max:max_rho,max_p,max_speed)
+    const auto& geom = grid_.geometry();
+    const double dV = geom.dx * geom.dy * geom.dz;  // Cell volume
+
+    // OpenMP parallel reduction for statistics
+    #pragma omp parallel reduction(min:min_rho,min_p,min_speed) \
+                         reduction(max:max_rho,max_p,max_speed) \
+                         reduction(+:kinetic_energy,magnetic_energy,internal_energy)
     {
         // Thread-private Eigen vectors
         Eigen::VectorXd U(nvars);
@@ -533,7 +544,7 @@ void FVMSolver3D::compute_statistics() {
                     const double w = V(3);
                     const double p = V(4);
 
-                    // Update local min/max (will be reduced across threads)
+                    // Update local min/max
                     min_rho = std::min(min_rho, rho);
                     max_rho = std::max(max_rho, rho);
                     min_p = std::min(min_p, p);
@@ -542,6 +553,22 @@ void FVMSolver3D::compute_statistics() {
                     const double speed = std::sqrt(u*u + v*v + w*w);
                     min_speed = std::min(min_speed, speed);
                     max_speed = std::max(max_speed, speed);
+
+                    // Compute energies for MHD
+                    if (nvars == 9) {  // MHD with GLM
+                        // Kinetic energy: 0.5 * rho * v^2
+                        kinetic_energy += 0.5 * rho * (u*u + v*v + w*w) * dV;
+
+                        // Magnetic energy: 0.5 * B^2
+                        const double Bx = V(5);
+                        const double By = V(6);
+                        const double Bz = V(7);
+                        magnetic_energy += 0.5 * (Bx*Bx + By*By + Bz*Bz) * dV;
+
+                        // Internal energy: p / (gamma - 1)
+                        const double gamma = 5.0/3.0;  // Adiabatic index
+                        internal_energy += p / (gamma - 1.0) * dV;
+                    }
                 }
             }
         }
@@ -554,15 +581,149 @@ void FVMSolver3D::compute_statistics() {
     stats_.max_p = max_p;
     stats_.min_speed = min_speed;
     stats_.max_speed = max_speed;
+    stats_.kinetic_energy = kinetic_energy;
+    stats_.magnetic_energy = magnetic_energy;
+    stats_.internal_energy = internal_energy;
+    stats_.total_energy = kinetic_energy + magnetic_energy + internal_energy;
+    stats_.max_div_B = compute_max_div_B();
+}
+
+double FVMSolver3D::compute_max_div_B() const {
+    // Only compute for MHD simulations
+    if (config_.num_vars != 9) {
+        return 0.0;
+    }
+
+    const int i_begin = grid_.i_begin();
+    const int i_end = grid_.i_end();
+    const int j_begin = grid_.j_begin();
+    const int j_end = grid_.j_end();
+    const int k_begin = grid_.k_begin();
+    const int k_end = grid_.k_end();
+
+    const auto& geom = grid_.geometry();
+    const double inv_dx = 1.0 / geom.dx;
+    const double inv_dy = 1.0 / geom.dy;
+    const double inv_dz = 1.0 / geom.dz;
+
+    double max_div_B = 0.0;
+
+    // Compute div(B) = dBx/dx + dBy/dy + dBz/dz using centered differences
+    #pragma omp parallel reduction(max:max_div_B)
+    {
+        #pragma omp for collapse(2)
+        for (int i = i_begin; i < i_end; i++) {
+            for (int j = j_begin; j < j_end; j++) {
+                for (int k = k_begin; k < k_end; k++) {
+                    // Central differences for interior points
+                    if (i > i_begin && i < i_end-1 &&
+                        j > j_begin && j < j_end-1 &&
+                        k > k_begin && k < k_end-1) {
+
+                        const double dBx_dx = (state_(5, i+1, j, k) - state_(5, i-1, j, k)) * 0.5 * inv_dx;
+                        const double dBy_dy = (state_(6, i, j+1, k) - state_(6, i, j-1, k)) * 0.5 * inv_dy;
+                        const double dBz_dz = (state_(7, i, j, k+1) - state_(7, i, j, k-1)) * 0.5 * inv_dz;
+
+                        const double div_B = std::abs(dBx_dx + dBy_dy + dBz_dz);
+                        max_div_B = std::max(max_div_B, div_B);
+                    }
+                }
+            }
+        }
+    }
+
+    return max_div_B;
+}
+
+void FVMSolver3D::apply_positivity_limiter() {
+    const int i_begin = grid_.i_begin();
+    const int i_end = grid_.i_end();
+    const int j_begin = grid_.j_begin();
+    const int j_end = grid_.j_end();
+    const int k_begin = grid_.k_begin();
+    const int k_end = grid_.k_end();
+    const int nvars = config_.num_vars;
+
+    // Density and pressure floors
+    const double rho_floor = 1.0e-10;
+    const double p_floor = 1.0e-10;
+
+    int num_fixes = 0;
+
+    #pragma omp parallel reduction(+:num_fixes)
+    {
+        Eigen::VectorXd U(nvars);
+        Eigen::VectorXd V(nvars);
+
+        #pragma omp for collapse(3)
+        for (int i = i_begin; i < i_end; i++) {
+            for (int j = j_begin; j < j_end; j++) {
+                for (int k = k_begin; k < k_end; k++) {
+                    // Load conservative variables
+                    for (int v = 0; v < nvars; v++) {
+                        U(v) = state_(v, i, j, k);
+                    }
+
+                    // Convert to primitive to check positivity
+                    V = physics_->conservative_to_primitive(U);
+
+                    bool needs_fix = false;
+
+                    // Check density
+                    if (V(0) < rho_floor) {
+                        V(0) = rho_floor;
+                        needs_fix = true;
+                    }
+
+                    // Check pressure (index 4 for MHD/Euler)
+                    if (nvars >= 5 && V(4) < p_floor) {
+                        V(4) = p_floor;
+                        needs_fix = true;
+                    }
+
+                    // If fixes were applied, convert back to conservative
+                    if (needs_fix) {
+                        U = physics_->primitive_to_conservative(V);
+
+                        // Write back to state
+                        for (int v = 0; v < nvars; v++) {
+                            state_(v, i, j, k) = U(v);
+                        }
+
+                        num_fixes++;
+                    }
+                }
+            }
+        }
+    }
+
+    // Report if fixes were applied
+    if (num_fixes > 0 && config_.verbose > 0) {
+        std::cout << "  [Positivity limiter] Fixed " << num_fixes << " cells\n";
+    }
 }
 
 void FVMSolver3D::print_progress() {
-    std::cout << std::scientific << std::setprecision(6)
-              << "Step " << std::setw(6) << step_count_
-              << " | Time " << std::setw(12) << t_current_
-              << " | dt " << std::setw(12) << dt_
-              << " | rho:[" << stats_.min_rho << "," << stats_.max_rho << "]"
-              << " | p:[" << stats_.min_p << "," << stats_.max_p << "]\n";
+    if (config_.num_vars == 9) {
+        // MHD output with energies and div(B)
+        std::cout << std::scientific << std::setprecision(3)
+                  << "Step " << std::setw(6) << step_count_
+                  << " | t=" << std::setw(9) << t_current_
+                  << " | dt=" << std::setw(9) << dt_
+                  << " | KE=" << std::setw(9) << stats_.kinetic_energy
+                  << " | BE=" << std::setw(9) << stats_.magnetic_energy
+                  << " | E_tot=" << std::setw(9) << stats_.total_energy
+                  << " | div(B)=" << std::setw(9) << stats_.max_div_B
+                  << " | p:[" << stats_.min_p << "," << stats_.max_p << "]\n";
+    } else {
+        // Euler output
+        std::cout << std::scientific << std::setprecision(6)
+                  << "Step " << std::setw(6) << step_count_
+                  << " | Time " << std::setw(12) << t_current_
+                  << " | dt " << std::setw(12) << dt_
+                  << " | rho:[" << stats_.min_rho << "," << stats_.max_rho << "]"
+                  << " | p:[" << stats_.min_p << "," << stats_.max_p << "]\n";
+    }
 }
 
 // Note: reconstruct_1d() is now inherited from FVMSolverBase
