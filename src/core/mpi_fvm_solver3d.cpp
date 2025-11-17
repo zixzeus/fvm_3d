@@ -1,4 +1,5 @@
 #include "core/mpi_fvm_solver3d.hpp"
+#include "physics/resistive_mhd3d_advanced.hpp"
 #include "io/mpi_hdf5_checkpoint.hpp"
 #include "parallel/mpi_utils.hpp"
 #include <iostream>
@@ -204,6 +205,46 @@ void MPIFVMSolver3D::step() {
         dt_ = config_.t_final - t_current_;
     }
 
+    // ================================================================
+    // STRANG SPLITTING: D^(dt/2) ∘ L^(dt) ∘ D^(dt/2)
+    // ================================================================
+    // Reference: OpenMHD glm_ss2.f90, Dedner et al. (2002)
+    // ================================================================
+
+    // ========== GLM DAMPING: First half-step ==========
+    auto mhd = std::dynamic_pointer_cast<physics::AdvancedResistiveMHD3D>(physics_);
+    if (mhd) {
+        const int nx = local_grid_->nx_total();
+        const int ny = local_grid_->ny_total();
+        const int nz = local_grid_->nz_total();
+        const int nvars = config_.num_vars;
+
+        #pragma omp parallel
+        {
+            Eigen::VectorXd U(nvars);
+
+            #pragma omp for collapse(3)
+            for (int i = 0; i < nx; i++) {
+                for (int j = 0; j < ny; j++) {
+                    for (int k = 0; k < nz; k++) {
+                        // Extract state vector at (i,j,k)
+                        for (int v = 0; v < nvars; v++) {
+                            U(v) = (*state_)(v, i, j, k);
+                        }
+
+                        // Apply GLM damping
+                        mhd->apply_glm_damping(U, dt_, 0.5);
+
+                        // Write back
+                        for (int v = 0; v < nvars; v++) {
+                            (*state_)(v, i, j, k) = U(v);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Define RHS function for time integrator
     auto rhs_function = [this](const StateField3D& U_in, StateField3D& rhs_out) {
         // Copy state
@@ -238,8 +279,41 @@ void MPIFVMSolver3D::step() {
         }
     };
 
-    // Time integration step
+    // ========== MHD EVOLUTION: Full time step (RK2/RK3) ==========
     time_integrator_->step(*state_, dt_, rhs_function);
+
+    // ========== GLM DAMPING: Second half-step ==========
+    if (mhd) {
+        const int nx = local_grid_->nx_total();
+        const int ny = local_grid_->ny_total();
+        const int nz = local_grid_->nz_total();
+        const int nvars = config_.num_vars;
+
+        #pragma omp parallel
+        {
+            Eigen::VectorXd U(nvars);
+
+            #pragma omp for collapse(3)
+            for (int i = 0; i < nx; i++) {
+                for (int j = 0; j < ny; j++) {
+                    for (int k = 0; k < nz; k++) {
+                        // Extract state vector at (i,j,k)
+                        for (int v = 0; v < nvars; v++) {
+                            U(v) = (*state_)(v, i, j, k);
+                        }
+
+                        // Apply GLM damping
+                        mhd->apply_glm_damping(U, dt_, 0.5);
+
+                        // Write back
+                        for (int v = 0; v < nvars; v++) {
+                            (*state_)(v, i, j, k) = U(v);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // Update time and step counter
     t_current_ += dt_;

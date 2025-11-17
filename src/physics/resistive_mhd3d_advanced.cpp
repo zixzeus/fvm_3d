@@ -333,6 +333,29 @@ double AdvancedResistiveMHD3D::glm_source(
     return psi_source;
 }
 
+void AdvancedResistiveMHD3D::apply_glm_damping(
+    Eigen::VectorXd& U,
+    double dt,
+    double factor
+) const {
+    // Only apply damping if we have 9 variables (including ψ)
+    if (U.size() < 9) {
+        return;
+    }
+
+    // Get GLM parameters
+    double ch = glm_params_.ch;
+    double cr = glm_params_.cr;
+
+    // Compute exponential decay factor
+    // ψ(t + dt) = ψ(t) × exp(-factor × dt × ch/cr)
+    double lambda = factor * dt * ch / cr;
+    double decay_factor = std::exp(-lambda);
+
+    // Apply damping to ψ field (index 8)
+    U(8) *= decay_factor;
+}
+
 // ========== Initial Conditions ==========
 
 Eigen::VectorXd AdvancedResistiveMHD3D::harris_sheet_initial(

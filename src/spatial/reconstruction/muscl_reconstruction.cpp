@@ -22,6 +22,22 @@ MUSCLReconstruction::MUSCLReconstruction(
     }
 }
 
+void MUSCLReconstruction::set_reconstruction_config(
+    const ReconstructionConfig& config,
+    const std::shared_ptr<physics::PhysicsBase>& physics
+) {
+    config_ = config;
+    physics_ = physics;
+    use_mixed_reconstruction_ = true;
+
+    // Validate configuration
+    if (config_.var_types.size() != static_cast<size_t>(num_vars_)) {
+        throw std::invalid_argument(
+            "MUSCLReconstruction: config size mismatch with num_vars"
+        );
+    }
+}
+
 void MUSCLReconstruction::reconstruct(
     const core::Field3D<double>& U,
     int i, int j, int k,
@@ -32,41 +48,114 @@ void MUSCLReconstruction::reconstruct(
     U_L.resize(num_vars_);
     U_R.resize(num_vars_);
 
-    // Reconstruct each variable independently
-    // Standard MUSCL uses 3-point stencil for each side
-    // SIMD vectorization for processing multiple variables in parallel
-    #pragma omp simd
-    for (int var = 0; var < num_vars_; ++var) {
-        // Get cell values based on direction
-        double U_minus1, U_center, U_plus1, U_plus2;
+    // If using mixed reconstruction, convert states to primitive first
+    Eigen::VectorXd V_minus1, V_center, V_plus1, V_plus2;
 
-        if (direction == 0) {  // x-direction
-            U_minus1 = get_cell_value(U, var, i - 1, j, k);
-            U_center = get_cell_value(U, var, i, j, k);
-            U_plus1 = get_cell_value(U, var, i + 1, j, k);
-            U_plus2 = get_cell_value(U, var, i + 2, j, k);
-        } else if (direction == 1) {  // y-direction
-            U_minus1 = get_cell_value(U, var, i, j - 1, k);
-            U_center = get_cell_value(U, var, i, j, k);
-            U_plus1 = get_cell_value(U, var, i, j + 1, k);
-            U_plus2 = get_cell_value(U, var, i, j + 2, k);
-        } else {  // z-direction
-            U_minus1 = get_cell_value(U, var, i, j, k - 1);
-            U_center = get_cell_value(U, var, i, j, k);
-            U_plus1 = get_cell_value(U, var, i, j, k + 1);
-            U_plus2 = get_cell_value(U, var, i, j, k + 2);
+    if (use_mixed_reconstruction_) {
+        // Extract conservative states
+        Eigen::VectorXd U_minus1_cons(num_vars_), U_center_cons(num_vars_);
+        Eigen::VectorXd U_plus1_cons(num_vars_), U_plus2_cons(num_vars_);
+
+        for (int var = 0; var < num_vars_; ++var) {
+            if (direction == 0) {
+                U_minus1_cons(var) = get_cell_value(U, var, i - 1, j, k);
+                U_center_cons(var) = get_cell_value(U, var, i, j, k);
+                U_plus1_cons(var) = get_cell_value(U, var, i + 1, j, k);
+                U_plus2_cons(var) = get_cell_value(U, var, i + 2, j, k);
+            } else if (direction == 1) {
+                U_minus1_cons(var) = get_cell_value(U, var, i, j - 1, k);
+                U_center_cons(var) = get_cell_value(U, var, i, j, k);
+                U_plus1_cons(var) = get_cell_value(U, var, i, j + 1, k);
+                U_plus2_cons(var) = get_cell_value(U, var, i, j + 2, k);
+            } else {
+                U_minus1_cons(var) = get_cell_value(U, var, i, j, k - 1);
+                U_center_cons(var) = get_cell_value(U, var, i, j, k);
+                U_plus1_cons(var) = get_cell_value(U, var, i, j, k + 1);
+                U_plus2_cons(var) = get_cell_value(U, var, i, j, k + 2);
+            }
         }
 
-        // Compute limited slopes for left and right cells
-        double slope_L = compute_limited_slope(U_minus1, U_center, U_plus1);
-        double slope_R = compute_limited_slope(U_center, U_plus1, U_plus2);
+        // Convert to primitive variables
+        V_minus1 = physics_->conservative_to_primitive(U_minus1_cons);
+        V_center = physics_->conservative_to_primitive(U_center_cons);
+        V_plus1 = physics_->conservative_to_primitive(U_plus1_cons);
+        V_plus2 = physics_->conservative_to_primitive(U_plus2_cons);
 
-        // MUSCL reconstruction at interface i+1/2
-        // U_L: extrapolate from cell i (using slope_L)
-        U_L(var) = U_center + 0.5 * slope_L;
+        // Reconstruct in primitive form
+        Eigen::VectorXd V_L(num_vars_), V_R(num_vars_);
 
-        // U_R: extrapolate from cell i+1 (using slope_R)
-        U_R(var) = U_plus1 - 0.5 * slope_R;
+        for (int var = 0; var < num_vars_; ++var) {
+            double val_minus1, val_center, val_plus1, val_plus2;
+
+            // Extract value based on reconstruction type
+            if (config_.var_types[var] == ReconstructionVariableType::PRIMITIVE) {
+                // Use primitive variables
+                val_minus1 = V_minus1(var);
+                val_center = V_center(var);
+                val_plus1 = V_plus1(var);
+                val_plus2 = V_plus2(var);
+            } else {
+                // Use conservative variables
+                if (direction == 0) {
+                    val_minus1 = get_cell_value(U, var, i - 1, j, k);
+                    val_center = get_cell_value(U, var, i, j, k);
+                    val_plus1 = get_cell_value(U, var, i + 1, j, k);
+                    val_plus2 = get_cell_value(U, var, i + 2, j, k);
+                } else if (direction == 1) {
+                    val_minus1 = get_cell_value(U, var, i, j - 1, k);
+                    val_center = get_cell_value(U, var, i, j, k);
+                    val_plus1 = get_cell_value(U, var, i, j + 1, k);
+                    val_plus2 = get_cell_value(U, var, i, j + 2, k);
+                } else {
+                    val_minus1 = get_cell_value(U, var, i, j, k - 1);
+                    val_center = get_cell_value(U, var, i, j, k);
+                    val_plus1 = get_cell_value(U, var, i, j, k + 1);
+                    val_plus2 = get_cell_value(U, var, i, j, k + 2);
+                }
+            }
+
+            // Compute limited slopes
+            double slope_L = compute_limited_slope(val_minus1, val_center, val_plus1);
+            double slope_R = compute_limited_slope(val_center, val_plus1, val_plus2);
+
+            // MUSCL reconstruction
+            V_L(var) = val_center + 0.5 * slope_L;
+            V_R(var) = val_plus1 - 0.5 * slope_R;
+        }
+
+        // Convert back to conservative form
+        U_L = physics_->primitive_to_conservative(V_L);
+        U_R = physics_->primitive_to_conservative(V_R);
+
+    } else {
+        // Original behavior: reconstruct conservative variables directly
+        #pragma omp simd
+        for (int var = 0; var < num_vars_; ++var) {
+            double U_minus1, U_center, U_plus1, U_plus2;
+
+            if (direction == 0) {
+                U_minus1 = get_cell_value(U, var, i - 1, j, k);
+                U_center = get_cell_value(U, var, i, j, k);
+                U_plus1 = get_cell_value(U, var, i + 1, j, k);
+                U_plus2 = get_cell_value(U, var, i + 2, j, k);
+            } else if (direction == 1) {
+                U_minus1 = get_cell_value(U, var, i, j - 1, k);
+                U_center = get_cell_value(U, var, i, j, k);
+                U_plus1 = get_cell_value(U, var, i, j + 1, k);
+                U_plus2 = get_cell_value(U, var, i, j + 2, k);
+            } else {
+                U_minus1 = get_cell_value(U, var, i, j, k - 1);
+                U_center = get_cell_value(U, var, i, j, k);
+                U_plus1 = get_cell_value(U, var, i, j, k + 1);
+                U_plus2 = get_cell_value(U, var, i, j, k + 2);
+            }
+
+            double slope_L = compute_limited_slope(U_minus1, U_center, U_plus1);
+            double slope_R = compute_limited_slope(U_center, U_plus1, U_plus2);
+
+            U_L(var) = U_center + 0.5 * slope_L;
+            U_R(var) = U_plus1 - 0.5 * slope_R;
+        }
     }
 }
 
