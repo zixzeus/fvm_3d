@@ -14,6 +14,8 @@ namespace fvm3d::io {
  * This class provides static methods to compute primitive variables and derived
  * quantities from conservative state variables, eliminating code duplication
  * between serial and parallel VTK writers.
+ *
+ * Performance: Functions are marked inline and optimized for hot path execution.
  */
 class VTKPhysicsHelper {
 public:
@@ -30,7 +32,7 @@ public:
      * @param gamma Ratio of specific heats (default: 1.4 for air)
      * @param R Gas constant (default: 1.0)
      */
-    static void compute_euler_primitives(
+    static inline void compute_euler_primitives(
         const core::StateField3D& state,
         const core::Grid3D& grid,
         std::vector<double>& pressure,
@@ -40,7 +42,7 @@ public:
         std::vector<double>* temperature = nullptr,
         double gamma = 1.4,
         double R = 1.0
-    );
+    ) __attribute__((hot));
 
     /**
      * @brief Compute MHD primitive variables
@@ -54,7 +56,7 @@ public:
      * @param B_magnitude Output: magnetic field magnitude
      * @param gamma Ratio of specific heats (default: 5/3 for MHD)
      */
-    static void compute_mhd_primitives(
+    static inline void compute_mhd_primitives(
         const core::StateField3D& state,
         const core::Grid3D& grid,
         std::vector<double>& pressure,
@@ -63,7 +65,7 @@ public:
         std::vector<double>& vel_z,
         std::vector<double>& B_magnitude,
         double gamma = 5.0/3.0
-    );
+    ) __attribute__((hot));
 
     /**
      * @brief Extract magnetic field components from state
@@ -74,13 +76,13 @@ public:
      * @param By Output: y-component of magnetic field
      * @param Bz Output: z-component of magnetic field
      */
-    static void extract_magnetic_field(
+    static inline void extract_magnetic_field(
         const core::StateField3D& state,
         const core::Grid3D& grid,
         std::vector<double>& Bx,
         std::vector<double>& By,
         std::vector<double>& Bz
-    );
+    ) __attribute__((hot));
 
 private:
     // Minimum density threshold to avoid division by zero

@@ -3,7 +3,7 @@
 
 namespace fvm3d::io {
 
-void VTKPhysicsHelper::compute_euler_primitives(
+inline void VTKPhysicsHelper::compute_euler_primitives(
     const core::StateField3D& state,
     const core::Grid3D& grid,
     std::vector<double>& pressure,
@@ -41,7 +41,8 @@ void VTKPhysicsHelper::compute_euler_primitives(
                 double rho_w = state(3, i + ng, j + ng, k + ng);
                 double E = state(4, i + ng, j + ng, k + ng);
 
-                if (rho > MIN_DENSITY) {
+                // Branch prediction hint: density check usually passes
+                if (__builtin_expect(rho > MIN_DENSITY, 1)) {
                     vel_x[idx] = rho_u / rho;
                     vel_y[idx] = rho_v / rho;
                     vel_z[idx] = rho_w / rho;
@@ -66,7 +67,7 @@ void VTKPhysicsHelper::compute_euler_primitives(
     }
 }
 
-void VTKPhysicsHelper::compute_mhd_primitives(
+inline void VTKPhysicsHelper::compute_mhd_primitives(
     const core::StateField3D& state,
     const core::Grid3D& grid,
     std::vector<double>& pressure,
@@ -107,7 +108,8 @@ void VTKPhysicsHelper::compute_mhd_primitives(
                 double B2 = Bx * Bx + By * By + Bz * Bz;
                 B_magnitude[idx] = std::sqrt(B2);
 
-                if (rho > MIN_DENSITY) {
+                // Branch prediction hint: density check usually passes
+                if (__builtin_expect(rho > MIN_DENSITY, 1)) {
                     vel_x[idx] = rho_u / rho;
                     vel_y[idx] = rho_v / rho;
                     vel_z[idx] = rho_w / rho;
@@ -125,7 +127,7 @@ void VTKPhysicsHelper::compute_mhd_primitives(
     }
 }
 
-void VTKPhysicsHelper::extract_magnetic_field(
+inline void VTKPhysicsHelper::extract_magnetic_field(
     const core::StateField3D& state,
     const core::Grid3D& grid,
     std::vector<double>& Bx,

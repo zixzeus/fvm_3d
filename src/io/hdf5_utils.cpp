@@ -3,57 +3,24 @@
 
 namespace fvm3d::io::hdf5_utils {
 
-std::vector<std::string> get_variable_names(int num_vars) {
+const std::vector<std::string>& get_variable_names(int num_vars) {
+    // Use static const to avoid repeated allocations
+    static const std::vector<std::string> vars_5 = {"rho", "rho_u", "rho_v", "rho_w", "E"};
+    static const std::vector<std::string> vars_8 = {"rho", "rho_u", "rho_v", "rho_w", "E", "Bx", "By", "Bz"};
+    static const std::vector<std::string> vars_9 = {"rho", "rho_u", "rho_v", "rho_w", "E", "Bx", "By", "Bz", "psi"};
+
     if (num_vars == 5) {
-        return {"rho", "rho_u", "rho_v", "rho_w", "E"};
+        return vars_5;
     } else if (num_vars == 8) {
-        return {"rho", "rho_u", "rho_v", "rho_w", "E", "Bx", "By", "Bz"};
+        return vars_8;
     } else if (num_vars == 9) {
-        return {"rho", "rho_u", "rho_v", "rho_w", "E", "Bx", "By", "Bz", "psi"};
+        return vars_9;
     } else {
         throw std::runtime_error("Unsupported number of variables: " + std::to_string(num_vars));
     }
 }
 
-void extract_interior_cells(
-    const core::StateField3D& state,
-    int var_index,
-    int nx, int ny, int nz,
-    int nghost,
-    std::vector<double>& output
-) {
-    output.resize(nx * ny * nz);
-
-    for (int i = 0; i < nx; i++) {
-        for (int j = 0; j < ny; j++) {
-            for (int k = 0; k < nz; k++) {
-                int idx = i * ny * nz + j * nz + k;
-                output[idx] = state(var_index, i + nghost, j + nghost, k + nghost);
-            }
-        }
-    }
-}
-
-void insert_interior_cells(
-    core::StateField3D& state,
-    int var_index,
-    const std::vector<double>& data,
-    int nx, int ny, int nz,
-    int nghost
-) {
-    if (data.size() != static_cast<size_t>(nx * ny * nz)) {
-        throw std::runtime_error("Data size mismatch in insert_interior_cells");
-    }
-
-    for (int i = 0; i < nx; i++) {
-        for (int j = 0; j < ny; j++) {
-            for (int k = 0; k < nz; k++) {
-                int idx = i * ny * nz + j * nz + k;
-                state(var_index, i + nghost, j + nghost, k + nghost) = data[idx];
-            }
-        }
-    }
-}
+// extract_interior_cells and insert_interior_cells are now inline in the header
 
 void write_string_attribute(hid_t loc_id, const std::string& name, const std::string& value) {
     hid_t attr_space = H5Screate(H5S_SCALAR);
