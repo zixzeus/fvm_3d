@@ -5,21 +5,25 @@
 #include <hdf5.h>
 #include <string>
 #include <vector>
+#include <stdexcept>
 
 namespace fvm3d::io::hdf5_utils {
 
 /**
  * @brief Get variable names based on number of variables
  *
+ * Returns a const reference to static arrays, avoiding allocations.
+ *
  * @param num_vars Number of state variables (5 for Euler, 8/9 for MHD)
- * @return Vector of variable names
+ * @return Const reference to vector of variable names
  */
-std::vector<std::string> get_variable_names(int num_vars);
+const std::vector<std::string>& get_variable_names(int num_vars);
 
 /**
  * @brief Extract interior cells from state field to flat array
  *
  * Extracts data from a single variable, excluding ghost cells.
+ * Inlined for performance in hot paths.
  *
  * @param state State field (with ghost cells)
  * @param var_index Variable index to extract
@@ -27,16 +31,29 @@ std::vector<std::string> get_variable_names(int num_vars);
  * @param nghost Number of ghost cells
  * @param output Output vector (will be resized to nx*ny*nz)
  */
-void extract_interior_cells(
+inline void extract_interior_cells(
     const core::StateField3D& state,
     int var_index,
     int nx, int ny, int nz,
     int nghost,
     std::vector<double>& output
-);
+) {
+    output.resize(nx * ny * nz);
+
+    for (int i = 0; i < nx; i++) {
+        for (int j = 0; j < ny; j++) {
+            for (int k = 0; k < nz; k++) {
+                int idx = i * ny * nz + j * nz + k;
+                output[idx] = state(var_index, i + nghost, j + nghost, k + nghost);
+            }
+        }
+    }
+}
 
 /**
  * @brief Insert flat array data back into state field interior cells
+ *
+ * Inlined for performance in hot paths.
  *
  * @param state State field (with ghost cells)
  * @param var_index Variable index to write to
@@ -44,13 +61,26 @@ void extract_interior_cells(
  * @param nx, ny, nz Interior cell dimensions (without ghosts)
  * @param nghost Number of ghost cells
  */
-void insert_interior_cells(
+inline void insert_interior_cells(
     core::StateField3D& state,
     int var_index,
     const std::vector<double>& data,
     int nx, int ny, int nz,
     int nghost
-);
+) {
+    if (data.size() != static_cast<size_t>(nx * ny * nz)) {
+        throw std::runtime_error("Data size mismatch in insert_interior_cells");
+    }
+
+    for (int i = 0; i < nx; i++) {
+        for (int j = 0; j < ny; j++) {
+            for (int k = 0; k < nz; k++) {
+                int idx = i * ny * nz + j * nz + k;
+                state(var_index, i + nghost, j + nghost, k + nghost) = data[idx];
+            }
+        }
+    }
+}
 
 /**
  * @brief Write a scalar attribute to HDF5 location
