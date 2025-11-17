@@ -24,7 +24,7 @@ namespace fvm3d::spatial {
 class FluxCalculatorFactory {
 public:
     /**
-     * Create a flux calculator with existing physics object (PREFERRED).
+     * Create a flux calculator with existing physics object.
      *
      * This method avoids duplicate physics object creation and allows
      * the flux calculator to use the same physics configuration as the solver.
@@ -42,26 +42,6 @@ public:
     static std::unique_ptr<FluxCalculator> create(
         const std::string& name,
         const std::shared_ptr<physics::PhysicsBase>& physics
-    );
-
-    /**
-     * Create a flux calculator by name (DEPRECATED).
-     *
-     * This method creates a new physics object internally, which may have
-     * different parameters than the solver's physics object. Use the
-     * new create(name, physics) method instead.
-     *
-     * @param name: Name of the flux calculator
-     * @param physics_type: Type of physics ("euler", "mhd_advanced", etc.)
-     * @param num_vars: Number of variables (5 for Euler, 9 for MHD)
-     * @return: Unique pointer to FluxCalculator instance
-     * @throws std::invalid_argument if name or physics_type is unknown
-     * @deprecated Use create(name, physics) instead
-     */
-    static std::unique_ptr<FluxCalculator> create(
-        const std::string& name,
-        const std::string& physics_type,
-        int num_vars = 5
     );
 
     /**

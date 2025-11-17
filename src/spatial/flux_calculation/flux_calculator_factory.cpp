@@ -7,7 +7,6 @@
 
 namespace fvm3d::spatial {
 
-// Preferred method: accepts existing physics object
 std::unique_ptr<FluxCalculator> FluxCalculatorFactory::create(
     const std::string& name,
     const std::shared_ptr<physics::PhysicsBase>& physics
@@ -36,20 +35,6 @@ std::unique_ptr<FluxCalculator> FluxCalculatorFactory::create(
     // } else if (name_lower == "ausm") {
     //     return std::make_unique<AUSMFluxCalculator>(physics);
     // }
-}
-
-// Deprecated method: creates physics object internally
-std::unique_ptr<FluxCalculator> FluxCalculatorFactory::create(
-    const std::string& name,
-    const std::string& physics_type,
-    int num_vars
-) {
-    // Create physics object using PhysicsFactory
-    // Note: Uses default parameters, may not match solver's physics configuration
-    auto physics = physics::PhysicsFactory::create(physics_type, 0.0);
-
-    // Delegate to new create() method
-    return create(name, physics);
 }
 
 std::vector<std::string> FluxCalculatorFactory::supported_calculators() {

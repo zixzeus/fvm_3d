@@ -129,7 +129,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> flux_calc_names = {"laxfriedrichs", "hll", "hllc"};
 
     for (const auto& calc_name : flux_calc_names) {
-        auto flux_calc = spatial::FluxCalculatorFactory::create(calc_name, "euler");
+        auto flux_calc = spatial::FluxCalculatorFactory::create(calc_name, physics);
         Eigen::VectorXd flux = flux_calc->compute_flux(U_L, U_R, *physics, 0);
         double wave_speed = flux_calc->compute_max_wave_speed(U_L, U_R, *physics, 0);
 
