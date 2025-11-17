@@ -430,46 +430,68 @@ double FVMSolver3D::compute_dt() {
 }
 
 void FVMSolver3D::compute_statistics() {
-    stats_.min_rho = 1e10;
-    stats_.max_rho = -1e10;
-    stats_.min_p = 1e10;
-    stats_.max_p = -1e10;
-    stats_.min_speed = 1e10;
-    stats_.max_speed = -1e10;
+    // Initialize statistics
+    double min_rho = 1e10;
+    double max_rho = -1e10;
+    double min_p = 1e10;
+    double max_p = -1e10;
+    double min_speed = 1e10;
+    double max_speed = -1e10;
 
-    int i_begin = grid_.i_begin();
-    int i_end = grid_.i_end();
-    int j_begin = grid_.j_begin();
-    int j_end = grid_.j_end();
-    int k_begin = grid_.k_begin();
-    int k_end = grid_.k_end();
+    const int i_begin = grid_.i_begin();
+    const int i_end = grid_.i_end();
+    const int j_begin = grid_.j_begin();
+    const int j_end = grid_.j_end();
+    const int k_begin = grid_.k_begin();
+    const int k_end = grid_.k_end();
+    const int nvars = config_.num_vars;
 
-    for (int i = i_begin; i < i_end; i++) {
-        for (int j = j_begin; j < j_end; j++) {
-            for (int k = k_begin; k < k_end; k++) {
-                Eigen::VectorXd U(config_.num_vars);
-                for (int v = 0; v < config_.num_vars; v++) {
-                    U(v) = state_(v, i, j, k);
+    // OpenMP parallel reduction for min/max statistics
+    // Each thread computes local min/max, then reduce to global
+    #pragma omp parallel reduction(min:min_rho,min_p,min_speed) reduction(max:max_rho,max_p,max_speed)
+    {
+        // Thread-private Eigen vectors
+        Eigen::VectorXd U(nvars);
+        Eigen::VectorXd V(nvars);
+
+        #pragma omp for collapse(2)
+        for (int i = i_begin; i < i_end; i++) {
+            for (int j = j_begin; j < j_end; j++) {
+                for (int k = k_begin; k < k_end; k++) {
+                    // Load conservative variables
+                    for (int v = 0; v < nvars; v++) {
+                        U(v) = state_(v, i, j, k);
+                    }
+
+                    // Convert to primitive variables
+                    V = physics_->conservative_to_primitive(U);
+                    const double rho = V(0);
+                    const double u = V(1);
+                    const double v = V(2);
+                    const double w = V(3);
+                    const double p = V(4);
+
+                    // Update local min/max (will be reduced across threads)
+                    min_rho = std::min(min_rho, rho);
+                    max_rho = std::max(max_rho, rho);
+                    min_p = std::min(min_p, p);
+                    max_p = std::max(max_p, p);
+
+                    const double speed = std::sqrt(u*u + v*v + w*w);
+                    min_speed = std::min(min_speed, speed);
+                    max_speed = std::max(max_speed, speed);
                 }
-
-                Eigen::VectorXd V = physics_->conservative_to_primitive(U);
-                double rho = V(0);
-                double u = V(1);
-                double v = V(2);
-                double w = V(3);
-                double p = V(4);
-
-                stats_.min_rho = std::min(stats_.min_rho, rho);
-                stats_.max_rho = std::max(stats_.max_rho, rho);
-                stats_.min_p = std::min(stats_.min_p, p);
-                stats_.max_p = std::max(stats_.max_p, p);
-
-                double speed = std::sqrt(u*u + v*v + w*w);
-                stats_.min_speed = std::min(stats_.min_speed, speed);
-                stats_.max_speed = std::max(stats_.max_speed, speed);
             }
         }
     }
+
+    // Store results in stats struct
+    stats_.min_rho = min_rho;
+    stats_.max_rho = max_rho;
+    stats_.min_p = min_p;
+    stats_.max_p = max_p;
+    stats_.min_speed = min_speed;
+    stats_.max_speed = max_speed;
 }
 
 void FVMSolver3D::print_progress() {
