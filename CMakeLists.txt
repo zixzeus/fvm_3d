@@ -73,6 +73,7 @@ set(IO_SOURCES
     src/io/mpi_hdf5_checkpoint.cpp
     src/io/vtk_writer.cpp
     src/io/parallel_vtk_writer.cpp
+    src/io/vtk_physics_helper.cpp
 )
 
 set(PARALLEL_SOURCES

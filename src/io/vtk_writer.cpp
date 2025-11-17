@@ -1,4 +1,5 @@
 #include "io/vtk_writer.hpp"
+#include "io/vtk_physics_helper.hpp"
 #include "physics/euler3d.hpp"
 #include <iostream>
 #include <iomanip>
@@ -285,46 +286,11 @@ void export_state_to_vtk(
         writer.add_scalar_from_state("momentum_z", state, 3, grid);
         writer.add_scalar_from_state("energy", state, 4, grid);
 
-        // Compute and add primitive variables
-        std::vector<double> pressure(nx * ny * nz);
-        std::vector<double> vel_x(nx * ny * nz);
-        std::vector<double> vel_y(nx * ny * nz);
-        std::vector<double> vel_z(nx * ny * nz);
-        std::vector<double> temperature(nx * ny * nz);
-
-        physics::EulerEquations3D euler;
-        const double gamma = 1.4;
-        const double R = 1.0;  // Gas constant
-
-        for (int i = 0; i < nx; i++) {
-            for (int j = 0; j < ny; j++) {
-                for (int k = 0; k < nz; k++) {
-                    int idx = k + nz * (j + ny * i);
-
-                    double rho = state(0, i + ng, j + ng, k + ng);
-                    double rho_u = state(1, i + ng, j + ng, k + ng);
-                    double rho_v = state(2, i + ng, j + ng, k + ng);
-                    double rho_w = state(3, i + ng, j + ng, k + ng);
-                    double E = state(4, i + ng, j + ng, k + ng);
-
-                    if (rho > 1e-10) {
-                        vel_x[idx] = rho_u / rho;
-                        vel_y[idx] = rho_v / rho;
-                        vel_z[idx] = rho_w / rho;
-
-                        double ke = 0.5 * (rho_u * rho_u + rho_v * rho_v + rho_w * rho_w) / rho;
-                        pressure[idx] = (gamma - 1.0) * (E - ke);
-                        temperature[idx] = pressure[idx] / (rho * R);
-                    } else {
-                        vel_x[idx] = 0.0;
-                        vel_y[idx] = 0.0;
-                        vel_z[idx] = 0.0;
-                        pressure[idx] = 0.0;
-                        temperature[idx] = 0.0;
-                    }
-                }
-            }
-        }
+        // Compute primitive variables using helper
+        std::vector<double> pressure, vel_x, vel_y, vel_z, temperature;
+        VTKPhysicsHelper::compute_euler_primitives(
+            state, grid, pressure, vel_x, vel_y, vel_z, &temperature
+        );
 
         writer.add_scalar_field("pressure", pressure.data(), nx, ny, nz);
         writer.add_scalar_field("temperature", temperature.data(), nx, ny, nz);
@@ -345,77 +311,19 @@ void export_state_to_vtk(
             writer.add_scalar_from_state("psi", state, 8, grid);  // GLM divergence cleaning
         }
 
-        // Compute primitive variables
-        std::vector<double> pressure(nx * ny * nz);
-        std::vector<double> vel_x(nx * ny * nz);
-        std::vector<double> vel_y(nx * ny * nz);
-        std::vector<double> vel_z(nx * ny * nz);
-        std::vector<double> B_magnitude(nx * ny * nz);
-        std::vector<double> current_density_x(nx * ny * nz);
-        std::vector<double> current_density_y(nx * ny * nz);
-        std::vector<double> current_density_z(nx * ny * nz);
-
-        const double gamma = 5.0/3.0;  // Typical for MHD
-
-        for (int i = 0; i < nx; i++) {
-            for (int j = 0; j < ny; j++) {
-                for (int k = 0; k < nz; k++) {
-                    int idx = k + nz * (j + ny * i);
-
-                    double rho = state(0, i + ng, j + ng, k + ng);
-                    double rho_u = state(1, i + ng, j + ng, k + ng);
-                    double rho_v = state(2, i + ng, j + ng, k + ng);
-                    double rho_w = state(3, i + ng, j + ng, k + ng);
-                    double E = state(4, i + ng, j + ng, k + ng);
-                    double Bx = state(5, i + ng, j + ng, k + ng);
-                    double By = state(6, i + ng, j + ng, k + ng);
-                    double Bz = state(7, i + ng, j + ng, k + ng);
-
-                    if (rho > 1e-10) {
-                        vel_x[idx] = rho_u / rho;
-                        vel_y[idx] = rho_v / rho;
-                        vel_z[idx] = rho_w / rho;
-
-                        double ke = 0.5 * (rho_u * rho_u + rho_v * rho_v + rho_w * rho_w) / rho;
-                        double B2 = Bx * Bx + By * By + Bz * Bz;
-                        pressure[idx] = (gamma - 1.0) * (E - ke - 0.5 * B2);
-                        B_magnitude[idx] = std::sqrt(B2);
-                    } else {
-                        vel_x[idx] = 0.0;
-                        vel_y[idx] = 0.0;
-                        vel_z[idx] = 0.0;
-                        pressure[idx] = 0.0;
-                        B_magnitude[idx] = std::sqrt(Bx*Bx + By*By + Bz*Bz);
-                    }
-
-                    // Current density J = curl(B) (simple finite difference)
-                    // For now, set to zero (proper calculation requires neighbor data)
-                    current_density_x[idx] = 0.0;
-                    current_density_y[idx] = 0.0;
-                    current_density_z[idx] = 0.0;
-                }
-            }
-        }
+        // Compute primitive variables using helper
+        std::vector<double> pressure, vel_x, vel_y, vel_z, B_magnitude;
+        VTKPhysicsHelper::compute_mhd_primitives(
+            state, grid, pressure, vel_x, vel_y, vel_z, B_magnitude
+        );
 
         writer.add_scalar_field("pressure", pressure.data(), nx, ny, nz);
         writer.add_scalar_field("B_magnitude", B_magnitude.data(), nx, ny, nz);
         writer.add_vector_field("velocity", vel_x.data(), vel_y.data(), vel_z.data(), nx, ny, nz);
 
-        // Extract magnetic field components
-        std::vector<double> Bx_array(nx * ny * nz);
-        std::vector<double> By_array(nx * ny * nz);
-        std::vector<double> Bz_array(nx * ny * nz);
-
-        for (int i = 0; i < nx; i++) {
-            for (int j = 0; j < ny; j++) {
-                for (int k = 0; k < nz; k++) {
-                    int idx = k + nz * (j + ny * i);
-                    Bx_array[idx] = state(5, i + ng, j + ng, k + ng);
-                    By_array[idx] = state(6, i + ng, j + ng, k + ng);
-                    Bz_array[idx] = state(7, i + ng, j + ng, k + ng);
-                }
-            }
-        }
+        // Extract magnetic field components using helper
+        std::vector<double> Bx_array, By_array, Bz_array;
+        VTKPhysicsHelper::extract_magnetic_field(state, grid, Bx_array, By_array, Bz_array);
 
         writer.add_vector_field("magnetic_field", Bx_array.data(), By_array.data(), Bz_array.data(), nx, ny, nz);
     }
