@@ -16,7 +16,8 @@ endif()
 # Find Eigen3
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 
-# Find HDF5
+# Find HDF5 with MPI support
+set(HDF5_PREFER_PARALLEL TRUE)
 find_package(HDF5 REQUIRED COMPONENTS C)
 include_directories(${HDF5_INCLUDE_DIRS})
 
@@ -69,9 +70,11 @@ set(BOUNDARY_SOURCES
 
 set(IO_SOURCES
     src/io/hdf5_checkpoint.cpp
+    src/io/hdf5_utils.cpp
     src/io/mpi_hdf5_checkpoint.cpp
     src/io/vtk_writer.cpp
     src/io/parallel_vtk_writer.cpp
+    src/io/vtk_physics_helper.cpp
 )
 
 set(PARALLEL_SOURCES

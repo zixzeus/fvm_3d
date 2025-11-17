@@ -1,4 +1,5 @@
 #include "io/mpi_hdf5_checkpoint.hpp"
+#include "io/hdf5_utils.hpp"
 #include <iostream>
 #include <stdexcept>
 #include <cstring>
@@ -86,16 +87,7 @@ void MPIHDFCheckpoint::save(
     MPI_Barrier(comm);
 
     // Write each variable as a 3D dataset using collective I/O
-    std::vector<std::string> var_names;
-    if (num_vars == 5) {
-        var_names = {"rho", "rho_u", "rho_v", "rho_w", "E"};
-    } else if (num_vars == 8) {
-        var_names = {"rho", "rho_u", "rho_v", "rho_w", "E", "Bx", "By", "Bz"};
-    } else if (num_vars == 9) {
-        var_names = {"rho", "rho_u", "rho_v", "rho_w", "E", "Bx", "By", "Bz", "psi"};
-    } else {
-        throw std::runtime_error("Unsupported number of variables: " + std::to_string(num_vars));
-    }
+    auto var_names = hdf5_utils::get_variable_names(num_vars);
 
     int nghost = grid.nghost();
 
@@ -198,14 +190,7 @@ bool MPIHDFCheckpoint::load(
     int offset_z = idx_range.k_min;
 
     // Variable names
-    std::vector<std::string> var_names;
-    if (num_vars == 5) {
-        var_names = {"rho", "rho_u", "rho_v", "rho_w", "E"};
-    } else if (num_vars == 8) {
-        var_names = {"rho", "rho_u", "rho_v", "rho_w", "E", "Bx", "By", "Bz"};
-    } else if (num_vars == 9) {
-        var_names = {"rho", "rho_u", "rho_v", "rho_w", "E", "Bx", "By", "Bz", "psi"};
-    }
+    auto var_names = hdf5_utils::get_variable_names(num_vars);
 
     int nghost = grid.nghost();
 
