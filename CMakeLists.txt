@@ -30,6 +30,7 @@ include_directories(include)
 # Source files
 set(CORE_SOURCES
     src/core/grid3d.cpp
+    src/core/fvm_solver_base.cpp
     src/core/fvm_solver3d.cpp
     src/core/mpi_fvm_solver3d.cpp
 )

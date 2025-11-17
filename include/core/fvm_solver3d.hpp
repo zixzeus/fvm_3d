@@ -2,11 +2,7 @@
 
 #include "grid3d.hpp"
 #include "field3d.hpp"
-#include "physics/physics_base.hpp"
-#include "spatial/flux_calculation/flux_calculator_base.hpp"
-#include "temporal/time_integrator.hpp"
-#include "spatial/reconstruction/reconstruction_base.hpp"
-#include "boundary/boundary_condition.hpp"
+#include "fvm_solver_base.hpp"
 #include <memory>
 #include <string>
 #include <functional>
@@ -65,7 +61,7 @@ struct FVMSolverConfig {
  * - Main simulation loop
  * - Output and monitoring
  */
-class FVMSolver3D {
+class FVMSolver3D : public FVMSolverBase {
 public:
     /**
      * Constructor: Initialize solver with configuration.
@@ -143,12 +139,8 @@ private:
     StateField3D u_temp_;          // Temporary storage for interface reconstruction
     StateField3D flux_x_, flux_y_, flux_z_;  // Fluxes in each direction
 
-    // Physics and numerical schemes
-    std::shared_ptr<physics::PhysicsBase> physics_;
-    std::unique_ptr<spatial::FluxCalculator> flux_calculator_;
-    std::unique_ptr<spatial::ReconstructionMethod> reconstruction_;
-    std::unique_ptr<temporal::TimeIntegrator> time_integrator_;
-    std::unique_ptr<boundary::BoundaryCondition> boundary_condition_;
+    // Note: physics_, flux_calculator_, reconstruction_, time_integrator_,
+    // and boundary_condition_ are now inherited from FVMSolverBase
 
     // Time stepping
     double t_current_;
@@ -207,17 +199,7 @@ private:
      */
     void print_progress();
 
-    /**
-     * Reconstruct interface values for a 1D slice.
-     * Returns reconstructed values at cell interfaces.
-     */
-    void reconstruct_1d(
-        const StateField3D& state,
-        int direction,
-        int i, int j, int k,
-        Eigen::VectorXd& U_L,
-        Eigen::VectorXd& U_R
-    );
+    // Note: reconstruct_1d() is now inherited from FVMSolverBase
 };
 
 } // namespace fvm3d::core

@@ -1,12 +1,4 @@
 #include "core/fvm_solver3d.hpp"
-#include "physics/physics_factory.hpp"
-#include "spatial/flux_calculation/flux_calculator_factory.hpp"
-#include "temporal/time_integrator_factory.hpp"
-#include "spatial/reconstruction/reconstruction_factory.hpp"
-#include "spatial/reconstruction/reconstruction_base.hpp"
-#include "boundary/periodic_bc.hpp"
-#include "boundary/reflective_bc.hpp"
-#include "boundary/transmissive_bc.hpp"
 #include "io/hdf5_checkpoint.hpp"
 #include <iostream>
 #include <iomanip>
@@ -34,57 +26,35 @@ FVMSolver3D::FVMSolver3D(const FVMSolverConfig& config)
       max_wave_speed_y_(0.0),
       max_wave_speed_z_(0.0)
 {
-    // Initialize physics using PhysicsFactory
-    if (config.physics_type == "mhd_advanced") {
-        // Advanced MHD with configurable resistivity model and GLM parameters
-        physics::AdvancedResistiveMHD3D::ResistivityModel resistivity;
-        resistivity.eta0 = config.mhd_eta0;
-        resistivity.eta1 = config.mhd_eta1;
-        resistivity.localization_scale = config.mhd_localization_scale;
+    // Initialize physics using base class method
+    initialize_physics(
+        config.physics_type,
+        config.mhd_resistivity,
+        config.mhd_eta0,
+        config.mhd_eta1,
+        config.mhd_localization_scale,
+        config.mhd_glm_ch,
+        config.mhd_glm_cr
+    );
 
-        physics::AdvancedResistiveMHD3D::GLMParameters glm(
-            config.mhd_glm_ch,
-            config.mhd_glm_cr
-        );
+    // Initialize flux calculator using base class method
+    initialize_flux_calculator(config.flux_calculator);
 
-        physics_ = physics::PhysicsFactory::create_advanced_mhd(resistivity, glm);
-    } else {
-        // Euler or basic MHD
-        physics_ = physics::PhysicsFactory::create(
-            config.physics_type,
-            config.mhd_resistivity
-        );
-    }
-
-    // Initialize flux calculator using physics object
-    flux_calculator_ = spatial::FluxCalculatorFactory::create(config.flux_calculator, physics_);
-
-    // Initialize reconstruction scheme
-    reconstruction_ = spatial::ReconstructionFactory::create(
+    // Initialize reconstruction scheme using base class method
+    initialize_reconstruction(
         config.reconstruction,
         config.num_vars,
         config.reconstruction_limiter
     );
 
-    // Initialize time integrator
-    time_integrator_ = temporal::TimeIntegratorFactory::create(config.time_integrator);
+    // Initialize time integrator using base class method
+    initialize_time_integrator(config.time_integrator);
 
-    // Initialize boundary conditions
-    if (config.boundary_condition == "periodic") {
-        boundary_condition_ = std::make_unique<boundary::PeriodicBC>(
-            physics_, config.bc_x, config.bc_y, config.bc_z
-        );
-    } else if (config.boundary_condition == "reflective") {
-        boundary_condition_ = std::make_unique<boundary::ReflectiveBC>(
-            physics_, config.bc_x, config.bc_y, config.bc_z
-        );
-    } else if (config.boundary_condition == "transmissive") {
-        boundary_condition_ = std::make_unique<boundary::TransmissiveBC>(
-            physics_, config.bc_x, config.bc_y, config.bc_z
-        );
-    } else {
-        throw std::invalid_argument("Unknown boundary condition: " + config.boundary_condition);
-    }
+    // Initialize boundary conditions using base class method
+    initialize_boundary_conditions(
+        config.boundary_condition,
+        config.bc_x, config.bc_y, config.bc_z
+    );
 
     if (config.verbose > 0) {
         std::cout << "FVM3D Solver initialized:\n"
@@ -503,17 +473,7 @@ void FVMSolver3D::print_progress() {
               << " | p:[" << stats_.min_p << "," << stats_.max_p << "]\n";
 }
 
-void FVMSolver3D::reconstruct_1d(
-    const StateField3D& state,
-    int direction,
-    int i, int j, int k,
-    Eigen::VectorXd& U_L,
-    Eigen::VectorXd& U_R
-) {
-    // Use new reconstruction API that operates directly on Field3D
-    // Reconstructs left and right states at interface (i+1/2, j, k) for direction=0
-    reconstruction_->reconstruct(state, i, j, k, direction, U_L, U_R);
-}
+// Note: reconstruct_1d() is now inherited from FVMSolverBase
 
 void FVMSolver3D::save_checkpoint(
     const std::string& filename,
