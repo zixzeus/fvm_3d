@@ -3,6 +3,8 @@
 #include "spatial/flux_calculation/flux_calculator_factory.hpp"
 #include "temporal/time_integrator_factory.hpp"
 #include "spatial/reconstruction/reconstruction_factory.hpp"
+#include "spatial/reconstruction/muscl_reconstruction.hpp"
+#include "spatial/reconstruction/reconstruction_config.hpp"
 #include "boundary/periodic_bc.hpp"
 #include "boundary/reflective_bc.hpp"
 #include "boundary/transmissive_bc.hpp"
@@ -55,6 +57,19 @@ void FVMSolverBase::initialize_reconstruction(
         num_vars,
         limiter_name
     );
+
+    // Enable OpenMHD-style mixed variable reconstruction for MHD
+    // This prevents negative density and pressure after reconstruction
+    if (physics_->physics_type() == physics::PhysicsType::MHD_ADVANCED) {
+        auto* muscl = dynamic_cast<spatial::MUSCLReconstruction*>(reconstruction_.get());
+        if (muscl) {
+            // Configure mixed reconstruction:
+            // - Velocities and pressure: primitive form
+            // - Density and magnetic fields: conservative form
+            auto config = spatial::ReconstructionConfig::default_mhd();
+            muscl->set_reconstruction_config(config, physics_);
+        }
+    }
 }
 
 void FVMSolverBase::initialize_time_integrator(const std::string& integrator_name) {

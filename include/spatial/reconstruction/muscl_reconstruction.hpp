@@ -1,6 +1,9 @@
 #pragma once
 
 #include "reconstruction_base.hpp"
+#include "reconstruction_config.hpp"
+#include "physics/physics_base.hpp"
+#include <memory>
 
 namespace fvm3d::spatial {
 
@@ -44,6 +47,21 @@ public:
         double kappa = 1.0/3.0
     );
 
+    /**
+     * Set reconstruction configuration for mixed variable reconstruction.
+     *
+     * Enables OpenMHD-style reconstruction where:
+     * - Velocities and pressure: reconstructed in primitive form
+     * - Density and magnetic fields: reconstructed in conservative form
+     *
+     * @param config: Reconstruction configuration specifying which variables use primitive form
+     * @param physics: Physics object for conservative ↔ primitive conversion
+     */
+    void set_reconstruction_config(
+        const ReconstructionConfig& config,
+        const std::shared_ptr<physics::PhysicsBase>& physics
+    );
+
     void reconstruct(
         const core::Field3D<double>& U,
         int i, int j, int k,
@@ -63,6 +81,11 @@ private:
     int num_vars_;
     double kappa_;  // MUSCL parameter for interpolation
 
+    // Mixed reconstruction configuration
+    bool use_mixed_reconstruction_ = false;
+    ReconstructionConfig config_;
+    std::shared_ptr<physics::PhysicsBase> physics_;
+
     /**
      * Compute limited slope at a cell.
      * @param U_minus: Value at i-1 (or j-1, k-1)
@@ -78,6 +101,24 @@ private:
     double get_cell_value(
         const core::Field3D<double>& U,
         int var, int i, int j, int k
+    ) const;
+
+    /**
+     * Extract variable value for reconstruction (handles mixed mode).
+     *
+     * Based on reconstruction config, extracts either:
+     * - Conservative form (from U directly)
+     * - Primitive form (from V = c2p(U))
+     *
+     * @param U_cons: Conservative state
+     * @param V_prim: Primitive state (if available)
+     * @param var: Variable index
+     * @return Value to use for reconstruction
+     */
+    double extract_variable_for_reconstruction(
+        const Eigen::VectorXd& U_cons,
+        const Eigen::VectorXd& V_prim,
+        int var
     ) const;
 };
 
