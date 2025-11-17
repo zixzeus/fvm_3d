@@ -21,10 +21,7 @@ FVMSolver3D::FVMSolver3D(const FVMSolverConfig& config)
       flux_z_(config.num_vars, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
       t_current_(0.0),
       step_count_(0),
-      dt_(0.0),
-      max_wave_speed_x_(0.0),
-      max_wave_speed_y_(0.0),
-      max_wave_speed_z_(0.0)
+      dt_(0.0)
 {
     // Initialize physics using base class method
     initialize_physics(
@@ -163,20 +160,11 @@ void FVMSolver3D::compute_rhs() {
     // Zero out RHS
     rhs_.fill(0.0);
 
-    // Reset cached wave speeds
-    max_wave_speed_x_ = 0.0;
-    max_wave_speed_y_ = 0.0;
-    max_wave_speed_z_ = 0.0;
-
     // Compute flux divergence: -dF/dx - dG/dy - dH/dz
-    // Also cache max wave speeds for CFL calculation
     for (int direction = 0; direction < 3; direction++) {
         StateField3D& flux_out = (direction == 0) ? flux_x_ :
                                  (direction == 1) ? flux_y_ : flux_z_;
-        double& max_speed_cache = (direction == 0) ? max_wave_speed_x_ :
-                                  (direction == 1) ? max_wave_speed_y_ : max_wave_speed_z_;
-
-        compute_fluxes(direction, flux_out, max_speed_cache);
+        compute_fluxes(direction, flux_out);
         add_flux_divergence(flux_out, direction);
     }
 
@@ -220,7 +208,7 @@ void FVMSolver3D::compute_rhs() {
     }
 }
 
-void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out, double& max_wave_speed_out) {
+void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out) {
     flux_out.fill(0.0);
 
     const int i_begin = grid_.i_begin();
@@ -231,15 +219,11 @@ void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out, double& 
     const int k_end = grid_.k_end();
     const int nvars = state_.nvars();
 
-    // Initialize max wave speed for this direction
-    max_wave_speed_out = 0.0;
-
     // OpenMP parallelization with thread-private Eigen vectors
     // Each thread gets its own vectors to avoid race conditions
-    // Use reduction to compute max wave speed efficiently
     if (direction == 0) {
         // X-direction fluxes: F_{i+1/2,j,k}
-        #pragma omp parallel reduction(max:max_wave_speed_out)
+        #pragma omp parallel
         {
             Eigen::VectorXd U_L(nvars), U_R(nvars), F(nvars);
 
@@ -249,10 +233,6 @@ void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out, double& 
                     for (int k = k_begin; k < k_end; k++) {
                         reconstruct_1d(state_, direction, i, j, k, U_L, U_R);
                         F = flux_calculator_->compute_flux(U_L, U_R, *physics_, direction);
-
-                        // Compute and cache max wave speed for CFL
-                        double local_speed = flux_calculator_->compute_max_wave_speed(U_L, U_R, *physics_, direction);
-                        max_wave_speed_out = std::max(max_wave_speed_out, local_speed);
 
                         // SIMD vectorization for flux storage
                         #pragma omp simd
@@ -265,7 +245,7 @@ void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out, double& 
         }
     } else if (direction == 1) {
         // Y-direction fluxes: G_{i,j+1/2,k}
-        #pragma omp parallel reduction(max:max_wave_speed_out)
+        #pragma omp parallel
         {
             Eigen::VectorXd U_L(nvars), U_R(nvars), F(nvars);
 
@@ -275,10 +255,6 @@ void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out, double& 
                     for (int k = k_begin; k < k_end; k++) {
                         reconstruct_1d(state_, direction, i, j, k, U_L, U_R);
                         F = flux_calculator_->compute_flux(U_L, U_R, *physics_, direction);
-
-                        // Compute and cache max wave speed for CFL
-                        double local_speed = flux_calculator_->compute_max_wave_speed(U_L, U_R, *physics_, direction);
-                        max_wave_speed_out = std::max(max_wave_speed_out, local_speed);
 
                         // SIMD vectorization for flux storage
                         #pragma omp simd
@@ -291,7 +267,7 @@ void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out, double& 
         }
     } else {
         // Z-direction fluxes: H_{i,j,k+1/2}
-        #pragma omp parallel reduction(max:max_wave_speed_out)
+        #pragma omp parallel
         {
             Eigen::VectorXd U_L(nvars), U_R(nvars), F(nvars);
 
@@ -301,10 +277,6 @@ void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out, double& 
                     for (int k = k_begin - 1; k < k_end; k++) {
                         reconstruct_1d(state_, direction, i, j, k, U_L, U_R);
                         F = flux_calculator_->compute_flux(U_L, U_R, *physics_, direction);
-
-                        // Compute and cache max wave speed for CFL
-                        double local_speed = flux_calculator_->compute_max_wave_speed(U_L, U_R, *physics_, direction);
-                        max_wave_speed_out = std::max(max_wave_speed_out, local_speed);
 
                         // SIMD vectorization for flux storage
                         #pragma omp simd
@@ -384,13 +356,44 @@ void FVMSolver3D::apply_boundary_conditions() {
 }
 
 double FVMSolver3D::compute_dt() {
-    // Use cached wave speeds from flux computation (computed during compute_rhs())
-    // This avoids redundant wave speed calculation for all cells
-    const double max_speed = std::max({max_wave_speed_x_, max_wave_speed_y_, max_wave_speed_z_});
+    const int i_begin = grid_.i_begin();
+    const int i_end = grid_.i_end();
+    const int j_begin = grid_.j_begin();
+    const int j_end = grid_.j_end();
+    const int k_begin = grid_.k_begin();
+    const int k_end = grid_.k_end();
+    const int nvars = state_.nvars();
 
-    // Safety check to avoid division by zero
-    if (max_speed < 1e-10) {
-        return 1e-3;  // Return small default time step
+    double max_speed = 1e-10;
+
+    // OpenMP parallel reduction for maximum wave speed
+    // Each thread computes local max, then reduce to global max
+    #pragma omp parallel reduction(max:max_speed)
+    {
+        // Thread-local Eigen vector to avoid conflicts
+        Eigen::VectorXd U(nvars);
+
+        #pragma omp for collapse(2)
+        for (int i = i_begin; i < i_end; i++) {
+            for (int j = j_begin; j < j_end; j++) {
+                for (int k = k_begin; k < k_end; k++) {
+                    // Load state vector - accessing contiguous memory in k direction
+                    for (int v = 0; v < nvars; v++) {
+                        U(v) = state_(v, i, j, k);
+                    }
+
+                    // Check wave speed in each direction
+                    // Unroll direction loop manually for better optimization
+                    const double speed_x = physics_->max_wave_speed(U, 0);
+                    const double speed_y = physics_->max_wave_speed(U, 1);
+                    const double speed_z = physics_->max_wave_speed(U, 2);
+
+                    // Local max to reduce number of comparisons
+                    const double local_max = std::max({speed_x, speed_y, speed_z});
+                    max_speed = std::max(max_speed, local_max);
+                }
+            }
+        }
     }
 
     const auto& geom = grid_.geometry();

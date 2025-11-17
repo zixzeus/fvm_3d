@@ -147,12 +147,6 @@ private:
     int step_count_;
     double dt_;
 
-    // Performance optimization: cache max wave speeds from flux computation
-    // to avoid redundant calculation in compute_dt()
-    double max_wave_speed_x_;
-    double max_wave_speed_y_;
-    double max_wave_speed_z_;
-
     // Monitoring
     struct Stats {
         double min_rho, max_rho;
@@ -169,10 +163,8 @@ private:
     /**
      * Compute fluxes in a given direction.
      * @param direction: 0=X, 1=Y, 2=Z
-     * @param flux_out: Output flux field
-     * @param max_wave_speed_out: Output parameter for caching max wave speed (optional)
      */
-    void compute_fluxes(int direction, StateField3D& flux_out, double& max_wave_speed_out);
+    void compute_fluxes(int direction, StateField3D& flux_out);
 
     /**
      * Compute flux divergence: -dF/dx (and similar for Y, Z).
