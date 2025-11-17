@@ -9,7 +9,7 @@ MPIHaloExchange::MPIHaloExchange(
     const std::shared_ptr<MPIDomainDecomposer>& decomposer,
     int nghost
 )
-    : decomposer_(decomposer), nghost_(nghost), exchange_pending_(false) {
+    : decomposer_(decomposer), nghost_(nghost), exchange_pending_(false), exchange_state_(nullptr) {
 
     if (!decomposer_) {
         throw std::invalid_argument("Domain decomposer required");
@@ -60,6 +60,8 @@ void MPIHaloExchange::start_exchange(StateField3D& state) {
         throw std::runtime_error("Exchange already in progress");
     }
 
+    // Store state pointer for unpacking in wait_exchange()
+    exchange_state_ = &state;
     requests_.clear();
 
     // Post non-blocking exchanges for all directions
@@ -86,7 +88,22 @@ void MPIHaloExchange::wait_exchange() {
         MPIUtils::check_mpi_error(error, "MPI_Waitall");
     }
 
+    // Unpack received data into ghost cells
+    if (exchange_state_) {
+        for (int direction = 0; direction < 3; direction++) {
+            // Unpack minus-side received data
+            if (decomposer_->has_neighbor(direction, -1)) {
+                unpack_recv_buffer(*exchange_state_, direction, -1);
+            }
+            // Unpack plus-side received data
+            if (decomposer_->has_neighbor(direction, +1)) {
+                unpack_recv_buffer(*exchange_state_, direction, +1);
+            }
+        }
+    }
+
     exchange_pending_ = false;
+    exchange_state_ = nullptr;
 }
 
 void MPIHaloExchange::post_exchange_direction(
@@ -152,13 +169,14 @@ void MPIHaloExchange::post_exchange_direction(
         MPIUtils::check_mpi_error(error, "MPI_Isend (plus)");
         requests_.push_back(req_send);
 
-        // Receive ghost data from neighbor
+        // Receive ghost data from neighbor's minus-side send
+        // Must use minus-side tag to match neighbor's send
         error = MPI_Irecv(
             recv_buffer_xp_.data(),
             recv_buffer_xp_.size(),
             MPI_DOUBLE,
             neighbor,
-            tag + 1,
+            direction * 2,  // Match minus-side send tag
             decomposer_->cartesian_comm(),
             &req_recv
         );
@@ -173,52 +191,68 @@ void MPIHaloExchange::pack_send_buffer(
     int side
 ) {
     // Extract interior cells for sending
-    int nx = state.nx();
-    int ny = state.ny();
-    int nz = state.nz();
+    const int nx = state.nx();
+    const int ny = state.ny();
+    const int nz = state.nz();
+    const int nvars = state.nvars();  // Get actual number of variables
+
+    // Vectorized approach: maintain interleaved buffer layout but optimize reads
+    // Buffer layout: [v0,v1,...,v7] for each (i,j,k) point
 
     if (direction == 0) {
         // X-direction: send layers from x=nghost or x=nx-2*nghost
         std::vector<double>& buffer = (side < 0) ? send_buffer_xm_ : send_buffer_xp_;
-        int i_start = (side < 0) ? nghost_ : (nx - 2*nghost_);
+        const int i_start = (side < 0) ? nghost_ : (nx - 2*nghost_);
 
         size_t idx = 0;
         for (int i = i_start; i < i_start + nghost_; i++) {
             for (int j = 0; j < ny; j++) {
+                // Vectorize k loop with manual gather from SoA layout
                 for (int k = 0; k < nz; k++) {
-                    for (int v = 0; v < 8; v++) {
-                        buffer[idx++] = state(v, i, j, k);
+                    // Pack all variables for this (i,j,k) point
+                    // Use pointer arithmetic for better compiler optimization
+                    double* buf_ptr = &buffer[idx];
+                    #pragma omp simd
+                    for (int v = 0; v < nvars; v++) {
+                        buf_ptr[v] = state(v, i, j, k);
                     }
+                    idx += nvars;
                 }
             }
         }
     } else if (direction == 1) {
         // Y-direction
         std::vector<double>& buffer = (side < 0) ? send_buffer_ym_ : send_buffer_yp_;
-        int j_start = (side < 0) ? nghost_ : (ny - 2*nghost_);
+        const int j_start = (side < 0) ? nghost_ : (ny - 2*nghost_);
 
         size_t idx = 0;
         for (int i = 0; i < nx; i++) {
             for (int j = j_start; j < j_start + nghost_; j++) {
                 for (int k = 0; k < nz; k++) {
-                    for (int v = 0; v < 8; v++) {
-                        buffer[idx++] = state(v, i, j, k);
+                    double* buf_ptr = &buffer[idx];
+                    #pragma omp simd
+                    for (int v = 0; v < nvars; v++) {
+                        buf_ptr[v] = state(v, i, j, k);
                     }
+                    idx += nvars;
                 }
             }
         }
     } else {
         // Z-direction
         std::vector<double>& buffer = (side < 0) ? send_buffer_zm_ : send_buffer_zp_;
-        int k_start = (side < 0) ? nghost_ : (nz - 2*nghost_);
+        const int k_start = (side < 0) ? nghost_ : (nz - 2*nghost_);
 
         size_t idx = 0;
         for (int i = 0; i < nx; i++) {
             for (int j = 0; j < ny; j++) {
                 for (int k = k_start; k < k_start + nghost_; k++) {
-                    for (int v = 0; v < 8; v++) {
-                        buffer[idx++] = state(v, i, j, k);
+                    double* buf_ptr = &buffer[idx];
+                    #pragma omp simd
+                    for (int v = 0; v < nvars; v++) {
+                        buf_ptr[v] = state(v, i, j, k);
                     }
+                    idx += nvars;
                 }
             }
         }
@@ -231,52 +265,67 @@ void MPIHaloExchange::unpack_recv_buffer(
     int side
 ) {
     // Write received ghost cells
-    int nx = state.nx();
-    int ny = state.ny();
-    int nz = state.nz();
+    const int nx = state.nx();
+    const int ny = state.ny();
+    const int nz = state.nz();
+    const int nvars = state.nvars();  // Get actual number of variables
+
+    // Vectorized approach: maintain interleaved buffer layout but optimize writes
+    // Buffer layout: [v0,v1,...,v7] for each (i,j,k) point
 
     if (direction == 0) {
         // X-direction: write to x=0 or x=nx-nghost
         std::vector<double>& buffer = (side < 0) ? recv_buffer_xm_ : recv_buffer_xp_;
-        int i_start = (side < 0) ? 0 : (nx - nghost_);
+        const int i_start = (side < 0) ? 0 : (nx - nghost_);
 
         size_t idx = 0;
         for (int i = i_start; i < i_start + nghost_; i++) {
             for (int j = 0; j < ny; j++) {
+                // Vectorize k loop with manual scatter to SoA layout
                 for (int k = 0; k < nz; k++) {
-                    for (int v = 0; v < 8; v++) {
-                        state(v, i, j, k) = buffer[idx++];
+                    // Unpack all variables for this (i,j,k) point
+                    const double* buf_ptr = &buffer[idx];
+                    #pragma omp simd
+                    for (int v = 0; v < nvars; v++) {
+                        state(v, i, j, k) = buf_ptr[v];
                     }
+                    idx += nvars;
                 }
             }
         }
     } else if (direction == 1) {
         // Y-direction
         std::vector<double>& buffer = (side < 0) ? recv_buffer_ym_ : recv_buffer_yp_;
-        int j_start = (side < 0) ? 0 : (ny - nghost_);
+        const int j_start = (side < 0) ? 0 : (ny - nghost_);
 
         size_t idx = 0;
         for (int i = 0; i < nx; i++) {
             for (int j = j_start; j < j_start + nghost_; j++) {
                 for (int k = 0; k < nz; k++) {
-                    for (int v = 0; v < 8; v++) {
-                        state(v, i, j, k) = buffer[idx++];
+                    const double* buf_ptr = &buffer[idx];
+                    #pragma omp simd
+                    for (int v = 0; v < nvars; v++) {
+                        state(v, i, j, k) = buf_ptr[v];
                     }
+                    idx += nvars;
                 }
             }
         }
     } else {
         // Z-direction
         std::vector<double>& buffer = (side < 0) ? recv_buffer_zm_ : recv_buffer_zp_;
-        int k_start = (side < 0) ? 0 : (nz - nghost_);
+        const int k_start = (side < 0) ? 0 : (nz - nghost_);
 
         size_t idx = 0;
         for (int i = 0; i < nx; i++) {
             for (int j = 0; j < ny; j++) {
                 for (int k = k_start; k < k_start + nghost_; k++) {
-                    for (int v = 0; v < 8; v++) {
-                        state(v, i, j, k) = buffer[idx++];
+                    const double* buf_ptr = &buffer[idx];
+                    #pragma omp simd
+                    for (int v = 0; v < nvars; v++) {
+                        state(v, i, j, k) = buf_ptr[v];
                     }
+                    idx += nvars;
                 }
             }
         }

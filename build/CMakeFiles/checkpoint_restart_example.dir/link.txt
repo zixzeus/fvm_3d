@@ -1,1 +1,0 @@
-/usr/bin/c++ -g -O0 -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/checkpoint_restart_example.dir/examples/checkpoint_restart_example.cpp.o -o checkpoint_restart_example  -Wl,-rpath,/opt/homebrew/lib libfvm3d_lib.a /opt/homebrew/lib/libhdf5.310.5.1.dylib /opt/homebrew/Cellar/open-mpi/5.0.8/lib/libmpi.dylib

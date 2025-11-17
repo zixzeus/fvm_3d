@@ -4,6 +4,7 @@
 #include <cmath>
 #include <algorithm>
 #include <functional>
+#include "physics_base.hpp"
 
 namespace fvm3d::physics {
 
@@ -22,6 +23,7 @@ namespace fvm3d::physics {
  *
  * Primitive variables (8):
  *   V = [ρ, u, v, w, p, Bx, By, Bz]
+ *   Note: ψ is not a primitive variable (it's a numerical artifact)
  *
  * Key differences from basic MHD:
  * 1. Resistivity varies with position: η = η(x,y,z)
@@ -30,7 +32,7 @@ namespace fvm3d::physics {
  * 4. Magnetic field evolution includes resistive terms
  * 5. Harris equilibrium support for initial conditions
  */
-class AdvancedResistiveMHD3D {
+class AdvancedResistiveMHD3D : public ConservationLaw {
 public:
     static constexpr int nvars = 9;          // Including GLM field ψ
     static constexpr double GAMMA = 5.0/3.0; // Adiabatic index (monatomic gas)
@@ -121,30 +123,104 @@ public:
     explicit AdvancedResistiveMHD3D(
         const ResistivityModel& res_model = ResistivityModel(),
         const GLMParameters& glm = GLMParameters()
-    ) : resistivity_model_(res_model), glm_params_(glm) {}
+    ) : ConservationLaw("AdvancedResistiveMHD3D", nvars, 3, PhysicsType::MHD_ADVANCED),
+        resistivity_model_(res_model), glm_params_(glm) {}
 
-    // ========== Variable Conversion ==========
-
-    /**
-     * Convert conservative variables to primitive variables.
-     * @param U: conservative state [ρ, ρu, ρv, ρw, E, Bx, By, Bz, ψ]
-     * @param rho, u, v, w, p, Bx, By, Bz: primitive variables (output)
-     */
-    void conservative_to_primitive(
-        const Eigen::VectorXd& U,
-        double& rho, double& u, double& v, double& w, double& p,
-        double& Bx, double& By, double& Bz
-    ) const;
+    // ========== PhysicsBase Interface Implementation ==========
 
     /**
-     * Convert primitive variables to conservative variables.
-     * @param psi: GLM divergence cleaning scalar
+     * Convert conservative to primitive variables (PhysicsBase interface).
+     * @param U: Conservative variables [ρ, ρu, ρv, ρw, E, Bx, By, Bz, ψ]
+     * @return V: Primitive variables [ρ, u, v, w, p, Bx, By, Bz]
+     * Note: ψ is dropped as it's not a primitive variable
      */
-    void primitive_to_conservative(
-        double rho, double u, double v, double w, double p,
-        double Bx, double By, double Bz, double psi,
-        Eigen::VectorXd& U
-    ) const;
+    Eigen::VectorXd conservative_to_primitive(const Eigen::VectorXd& U) const override {
+        // Density with floor
+        double rho = std::max(U(0), RHO_FLOOR);
+
+        // Velocity components
+        double u = U(1) / rho;
+        double v = U(2) / rho;
+        double w = U(3) / rho;
+
+        // Magnetic field (directly from conservative)
+        double Bx = U(5);
+        double By = U(6);
+        double Bz = U(7);
+
+        // Compute energies
+        double u_sq = u*u + v*v + w*w;
+        double B_sq = Bx*Bx + By*By + Bz*Bz;
+        double kinetic_energy = 0.5 * rho * u_sq;
+        double magnetic_energy = 0.5 * B_sq / MU0;
+
+        // Extract pressure from total energy
+        double internal_energy = U(4) / rho - 0.5 * u_sq - (B_sq / (2.0 * MU0 * rho));
+        double p = std::max((GAMMA - 1.0) * rho * internal_energy, P_FLOOR);
+
+        Eigen::VectorXd V(8);
+        V << rho, u, v, w, p, Bx, By, Bz;
+        return V;
+    }
+
+    /**
+     * Convert primitive to conservative variables (PhysicsBase interface).
+     * @param V: Primitive variables [ρ, u, v, w, p, Bx, By, Bz]
+     * @return U: Conservative variables [ρ, ρu, ρv, ρw, E, Bx, By, Bz, ψ]
+     * Note: ψ is set to 0.0 by default
+     */
+    Eigen::VectorXd primitive_to_conservative(const Eigen::VectorXd& V) const override {
+        double rho = std::max(V(0), RHO_FLOOR);
+        double u = V(1);
+        double v = V(2);
+        double w = V(3);
+        double p = std::max(V(4), P_FLOOR);
+        double Bx = V(5);
+        double By = V(6);
+        double Bz = V(7);
+        double psi = 0.0;  // Default GLM field value
+
+        Eigen::VectorXd U(nvars);
+        U(0) = rho;
+        U(1) = rho * u;
+        U(2) = rho * v;
+        U(3) = rho * w;
+        U(5) = Bx;
+        U(6) = By;
+        U(7) = Bz;
+        U(8) = psi;  // GLM field
+
+        // Total energy density
+        double u_sq = u*u + v*v + w*w;
+        double B_sq = Bx*Bx + By*By + Bz*Bz;
+        double kinetic_energy = 0.5 * rho * u_sq;
+        double internal_energy = p / ((GAMMA - 1.0) * rho);
+        double magnetic_energy = 0.5 * B_sq / MU0;
+
+        U(4) = rho * internal_energy + kinetic_energy + magnetic_energy;
+
+        return U;
+    }
+
+    /**
+     * Compute flux in given direction (PhysicsBase interface).
+     * Note: Advanced MHD flux depends on position for resistivity.
+     * This method uses position (0,0,0) by default.
+     * For position-dependent flux, use flux_x/y/z directly.
+     */
+    Eigen::VectorXd compute_flux(const Eigen::VectorXd& U, int direction) const override {
+        // Use default position (0,0,0) for interface compatibility
+        switch (direction) {
+            case 0: return flux_x(U, 0.0, 0.0, 0.0);
+            case 1: return flux_y(U, 0.0, 0.0, 0.0);
+            case 2: return flux_z(U, 0.0, 0.0, 0.0);
+            default:
+                throw std::invalid_argument(
+                    "Invalid direction: " + std::to_string(direction) +
+                    " (must be 0, 1, or 2)"
+                );
+        }
+    }
 
     // ========== Wave Speed Calculations ==========
 
@@ -166,7 +242,7 @@ public:
     /**
      * Maximum wave speed including GLM wave.
      */
-    double max_wave_speed(const Eigen::VectorXd& U, int direction) const;
+    double max_wave_speed(const Eigen::VectorXd& U, int direction) const override;
 
     // ========== Flux Functions ==========
 
@@ -298,6 +374,14 @@ private:
         const Eigen::VectorXd& U_ym, const Eigen::VectorXd& U_yp,
         const Eigen::VectorXd& U_zm, const Eigen::VectorXd& U_zp
     ) const;
+
+    // ========== Physics Constants Accessors (PhysicsBase interface) ==========
+
+    double gamma() const override { return GAMMA; }
+    double rho_floor() const override { return RHO_FLOOR; }
+    double p_floor() const override { return P_FLOOR; }
+    double mu0() const override { return MU0; }
+    double b_floor() const override { return B_FLOOR; }
 };
 
 } // namespace fvm3d::physics

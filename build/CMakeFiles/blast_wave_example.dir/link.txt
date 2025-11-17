@@ -1,1 +1,0 @@
-/usr/bin/c++ -g -O0 -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/blast_wave_example.dir/examples/blast_wave_3d.cpp.o -o blast_wave_example  -Wl,-rpath,/opt/homebrew/lib libfvm3d_lib.a /opt/homebrew/lib/libhdf5.310.5.1.dylib /opt/homebrew/Cellar/open-mpi/5.0.8/lib/libmpi.dylib

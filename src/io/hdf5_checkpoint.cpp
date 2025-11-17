@@ -3,6 +3,7 @@
 #include <iostream>
 #include <iomanip>
 #include <cstring>
+#include <vector>
 #include <sys/stat.h>
 
 namespace fvm3d::io {

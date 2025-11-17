@@ -84,6 +84,66 @@ public:
         return *this;
     }
 
+    // ========== Vectorized Operations for Time Integration ==========
+
+    /**
+     * AXPY operation: this = a * x + y
+     * Vectorized operation on entire field (single pass through memory).
+     */
+    void axpy(T a, const Field3D& x, const Field3D& y) {
+        #pragma omp simd
+        for (size_t i = 0; i < size_; i++) {
+            data_[i] = a * x.data_[i] + y.data_[i];
+        }
+    }
+
+    /**
+     * Linear combination: this = a * x + b * y
+     * Vectorized operation on entire field.
+     */
+    void linear_combination(T a, const Field3D& x, T b, const Field3D& y) {
+        #pragma omp simd
+        for (size_t i = 0; i < size_; i++) {
+            data_[i] = a * x.data_[i] + b * y.data_[i];
+        }
+    }
+
+    /**
+     * Three-term linear combination: this = a * x + b * y + c * z
+     * Vectorized operation on entire field.
+     */
+    void linear_combination_3(
+        T a, const Field3D& x,
+        T b, const Field3D& y,
+        T c, const Field3D& z
+    ) {
+        #pragma omp simd
+        for (size_t i = 0; i < size_; i++) {
+            data_[i] = a * x.data_[i] + b * y.data_[i] + c * z.data_[i];
+        }
+    }
+
+    /**
+     * Scaled add: this = this + a * x
+     * In-place AXPY operation (BLAS DAXPY pattern).
+     */
+    void add_scaled(T a, const Field3D& x) {
+        #pragma omp simd
+        for (size_t i = 0; i < size_; i++) {
+            data_[i] += a * x.data_[i];
+        }
+    }
+
+    /**
+     * Scale entire field: this = a * this
+     */
+    void scale(T a) {
+        #pragma omp simd
+        for (size_t i = 0; i < size_; i++) {
+            data_[i] *= a;
+        }
+    }
+
 private:
     int nvars_;
     int nx_, ny_, nz_;

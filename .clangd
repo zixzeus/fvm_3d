@@ -1,0 +1,14 @@
+CompileFlags:
+  Add:
+    - "-std=c++17"
+    - "-Wall"
+  CompilationDatabase: build/
+
+Diagnostics:
+  ClangTidy:
+    Add: []
+    Remove: []
+  UnusedIncludes: None
+
+Index:
+  Background: Build

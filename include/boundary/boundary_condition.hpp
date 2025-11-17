@@ -2,7 +2,9 @@
 
 #include "core/field3d.hpp"
 #include "core/grid3d.hpp"
+#include "physics/physics_base.hpp"
 #include <string>
+#include <memory>
 
 namespace fvm3d::boundary {
 
@@ -15,6 +17,13 @@ using Grid3D = fvm3d::core::Grid3D;
  */
 class BoundaryCondition {
 public:
+    /**
+     * Constructor with physics object.
+     * @param physics: Physics equation system for getting constants
+     */
+    explicit BoundaryCondition(const std::shared_ptr<physics::PhysicsBase>& physics)
+        : physics_(physics) {}
+
     virtual ~BoundaryCondition() = default;
 
     /**
@@ -31,24 +40,32 @@ public:
     virtual std::string name() const = 0;
 
 protected:
-    static constexpr double GAMMA = 1.4;
-    static constexpr double RHO_FLOOR = 1e-10;
-    static constexpr double P_FLOOR = 1e-11;
+    std::shared_ptr<physics::PhysicsBase> physics_;  ///< Physics object for constants
 
+    /**
+     * Convert conservative to primitive variables using physics object.
+     * Uses physics object's conversion method for accuracy.
+     */
     void conservative_to_primitive(
         const StateField3D& state, int i, int j, int k,
         double& rho, double& u, double& v, double& w, double& p
     ) const {
-        rho = std::max(state(0, i, j, k), RHO_FLOOR);
-        u = state(1, i, j, k) / rho;
-        v = state(2, i, j, k) / rho;
-        w = state(3, i, j, k) / rho;
+        // Extract conservative state at (i,j,k)
+        int nvars = physics_->num_variables();
+        Eigen::VectorXd U(nvars);
+        for (int var = 0; var < nvars; ++var) {
+            U(var) = state(var, i, j, k);
+        }
 
-        double kinetic_energy = 0.5 * (state(1, i, j, k)*state(1, i, j, k) +
-                                       state(2, i, j, k)*state(2, i, j, k) +
-                                       state(3, i, j, k)*state(3, i, j, k)) / rho;
-        double internal_energy = state(4, i, j, k) / rho - kinetic_energy;
-        p = std::max((GAMMA - 1.0) * rho * internal_energy, P_FLOOR);
+        // Convert using physics object
+        Eigen::VectorXd V = physics_->conservative_to_primitive(U);
+
+        // Extract primitive variables (common to Euler and MHD)
+        rho = V(0);
+        u = V(1);
+        v = V(2);
+        w = V(3);
+        p = V(4);
     }
 };
 

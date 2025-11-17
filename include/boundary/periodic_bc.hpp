@@ -10,8 +10,21 @@ namespace fvm3d::boundary {
  */
 class PeriodicBC : public BoundaryCondition {
 public:
-    PeriodicBC(bool periodic_x = true, bool periodic_y = false, bool periodic_z = false)
-        : periodic_x_(periodic_x), periodic_y_(periodic_y), periodic_z_(periodic_z) {}
+    /**
+     * Constructor specifies which directions have periodic boundaries.
+     * @param physics: Physics object for variable conversion
+     * @param periodic_x/y/z: Enable periodic BC in each direction
+     */
+    PeriodicBC(
+        const std::shared_ptr<physics::PhysicsBase>& physics,
+        bool periodic_x = true,
+        bool periodic_y = false,
+        bool periodic_z = false
+    )
+        : BoundaryCondition(physics),
+          periodic_x_(periodic_x),
+          periodic_y_(periodic_y),
+          periodic_z_(periodic_z) {}
 
     void apply(StateField3D& state, const Grid3D& grid) override;
     std::string name() const override { return "Periodic"; }

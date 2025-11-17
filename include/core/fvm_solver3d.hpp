@@ -2,11 +2,7 @@
 
 #include "grid3d.hpp"
 #include "field3d.hpp"
-#include "physics/euler3d.hpp"
-#include "spatial/riemann_solver.hpp"
-#include "spatial/reconstruction.hpp"
-#include "temporal/time_integrator.hpp"
-#include "boundary/boundary_condition.hpp"
+#include "fvm_solver_base.hpp"
 #include <memory>
 #include <string>
 #include <functional>
@@ -23,8 +19,20 @@ struct FVMSolverConfig {
     int nx, ny, nz;             // Number of cells
     int nghost;                 // Number of ghost cells
 
-    // Physics and schemes
-    std::string riemann_solver;     // "laxfriedrichs", "hll", "hllc"
+    // Physics type
+    std::string physics_type;       // "euler", "mhd", "mhd_advanced"
+    int num_vars;                   // Number of variables (5 for Euler, 8/9 for MHD)
+
+    // MHD-specific parameters (only used when physics_type = "mhd" or "mhd_advanced")
+    double mhd_resistivity = 0.0;            // Basic resistivity for simple MHD
+    double mhd_eta0 = 1e-3;                  // Background resistivity for advanced MHD
+    double mhd_eta1 = 1.67e-2;               // Enhanced resistivity for advanced MHD
+    double mhd_localization_scale = 1.0;     // Resistivity localization scale
+    double mhd_glm_ch = 0.2;                 // GLM divergence wave speed
+    double mhd_glm_cr = 0.2;                 // GLM parabolic dissipation ratio
+
+    // Numerical schemes
+    std::string flux_calculator;    // "laxfriedrichs", "hll", "hllc", "hlld"
     std::string reconstruction;     // "constant", "muscl"
     std::string reconstruction_limiter;  // "minmod", "van_leer", "superbee"
     std::string time_integrator;    // "euler", "rk2", "rk3"
@@ -47,13 +55,13 @@ struct FVMSolverConfig {
  * Main FVM Solver for 3D compressible flow.
  *
  * Orchestrates:
- * - Spatial discretization (reconstruction + Riemann solver)
+ * - Spatial discretization (reconstruction + flux calculator)
  * - Time integration (explicit Runge-Kutta)
  * - Boundary condition application
  * - Main simulation loop
  * - Output and monitoring
  */
-class FVMSolver3D {
+class FVMSolver3D : public FVMSolverBase {
 public:
     /**
      * Constructor: Initialize solver with configuration.
@@ -131,17 +139,19 @@ private:
     StateField3D u_temp_;          // Temporary storage for interface reconstruction
     StateField3D flux_x_, flux_y_, flux_z_;  // Fluxes in each direction
 
-    // Physics and numerical schemes
-    std::unique_ptr<physics::EulerEquations3D> physics_;
-    std::unique_ptr<spatial::RiemannSolver> riemann_solver_;
-    std::unique_ptr<spatial::ReconstructionScheme> reconstruction_;
-    std::unique_ptr<temporal::TimeIntegrator> time_integrator_;
-    std::unique_ptr<boundary::BoundaryCondition> boundary_condition_;
+    // Note: physics_, flux_calculator_, reconstruction_, time_integrator_,
+    // and boundary_condition_ are now inherited from FVMSolverBase
 
     // Time stepping
     double t_current_;
     int step_count_;
     double dt_;
+
+    // Performance optimization: cache max wave speeds from flux computation
+    // to avoid redundant calculation in compute_dt()
+    double max_wave_speed_x_;
+    double max_wave_speed_y_;
+    double max_wave_speed_z_;
 
     // Monitoring
     struct Stats {
@@ -159,8 +169,10 @@ private:
     /**
      * Compute fluxes in a given direction.
      * @param direction: 0=X, 1=Y, 2=Z
+     * @param flux_out: Output flux field
+     * @param max_wave_speed_out: Output parameter for caching max wave speed (optional)
      */
-    void compute_fluxes(int direction, StateField3D& flux_out);
+    void compute_fluxes(int direction, StateField3D& flux_out, double& max_wave_speed_out);
 
     /**
      * Compute flux divergence: -dF/dx (and similar for Y, Z).
@@ -187,17 +199,7 @@ private:
      */
     void print_progress();
 
-    /**
-     * Reconstruct interface values for a 1D slice.
-     * Returns reconstructed values at cell interfaces.
-     */
-    void reconstruct_1d(
-        const StateField3D& state,
-        int direction,
-        int i, int j, int k,
-        Eigen::VectorXd& U_L,
-        Eigen::VectorXd& U_R
-    );
+    // Note: reconstruct_1d() is now inherited from FVMSolverBase
 };
 
 } // namespace fvm3d::core

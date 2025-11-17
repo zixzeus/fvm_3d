@@ -1,10 +1,4 @@
 #include "core/fvm_solver3d.hpp"
-#include "spatial/riemann_solver_factory.hpp"
-#include "spatial/reconstruction.hpp"
-#include "temporal/time_integrator_factory.hpp"
-#include "boundary/periodic_bc.hpp"
-#include "boundary/reflective_bc.hpp"
-#include "boundary/transmissive_bc.hpp"
 #include "io/hdf5_checkpoint.hpp"
 #include <iostream>
 #include <iomanip>
@@ -19,47 +13,48 @@ FVMSolver3D::FVMSolver3D(const FVMSolverConfig& config)
                           config.Lx, config.Ly, config.Lz,
                           config.nx, config.ny, config.nz),
             config.nghost),
-      state_(5, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
-      rhs_(5, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
-      u_temp_(5, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
-      flux_x_(5, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
-      flux_y_(5, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
-      flux_z_(5, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
+      state_(config.num_vars, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
+      rhs_(config.num_vars, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
+      u_temp_(config.num_vars, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
+      flux_x_(config.num_vars, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
+      flux_y_(config.num_vars, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
+      flux_z_(config.num_vars, grid_.nx_total(), grid_.ny_total(), grid_.nz_total()),
       t_current_(0.0),
       step_count_(0),
-      dt_(0.0)
+      dt_(0.0),
+      max_wave_speed_x_(0.0),
+      max_wave_speed_y_(0.0),
+      max_wave_speed_z_(0.0)
 {
-    // Initialize physics
-    physics_ = std::make_unique<physics::EulerEquations3D>();
+    // Initialize physics using base class method
+    initialize_physics(
+        config.physics_type,
+        config.mhd_resistivity,
+        config.mhd_eta0,
+        config.mhd_eta1,
+        config.mhd_localization_scale,
+        config.mhd_glm_ch,
+        config.mhd_glm_cr
+    );
 
-    // Initialize Riemann solver
-    riemann_solver_ = spatial::RiemannSolverFactory::create(config.riemann_solver);
+    // Initialize flux calculator using base class method
+    initialize_flux_calculator(config.flux_calculator);
 
-    // Initialize reconstruction scheme
-    reconstruction_ = spatial::ReconstructionFactory::create(
+    // Initialize reconstruction scheme using base class method
+    initialize_reconstruction(
         config.reconstruction,
+        config.num_vars,
         config.reconstruction_limiter
     );
 
-    // Initialize time integrator
-    time_integrator_ = temporal::TimeIntegratorFactory::create(config.time_integrator);
+    // Initialize time integrator using base class method
+    initialize_time_integrator(config.time_integrator);
 
-    // Initialize boundary conditions
-    if (config.boundary_condition == "periodic") {
-        boundary_condition_ = std::make_unique<boundary::PeriodicBC>(
-            config.bc_x, config.bc_y, config.bc_z
-        );
-    } else if (config.boundary_condition == "reflective") {
-        boundary_condition_ = std::make_unique<boundary::ReflectiveBC>(
-            config.bc_x, config.bc_y, config.bc_z
-        );
-    } else if (config.boundary_condition == "transmissive") {
-        boundary_condition_ = std::make_unique<boundary::TransmissiveBC>(
-            config.bc_x, config.bc_y, config.bc_z
-        );
-    } else {
-        throw std::invalid_argument("Unknown boundary condition: " + config.boundary_condition);
-    }
+    // Initialize boundary conditions using base class method
+    initialize_boundary_conditions(
+        config.boundary_condition,
+        config.bc_x, config.bc_y, config.bc_z
+    );
 
     if (config.verbose > 0) {
         std::cout << "FVM3D Solver initialized:\n"
@@ -67,7 +62,7 @@ FVMSolver3D::FVMSolver3D(const FVMSolverConfig& config)
                   << "  Domain: [" << config.xmin << "," << (config.xmin + config.Lx) << "] x "
                   << "[" << config.ymin << "," << (config.ymin + config.Ly) << "] x "
                   << "[" << config.zmin << "," << (config.zmin + config.Lz) << "]\n"
-                  << "  Riemann Solver: " << riemann_solver_->name() << "\n"
+                  << "  Flux Calculator: " << flux_calculator_->name() << "\n"
                   << "  Reconstruction: " << reconstruction_->name() << "\n"
                   << "  Time Integrator: " << time_integrator_->name() << "\n"
                   << "  Boundary Condition: " << boundary_condition_->name() << "\n"
@@ -79,6 +74,7 @@ void FVMSolver3D::initialize(const InitFunction& init_func) {
     int nx_total = grid_.nx_total();
     int ny_total = grid_.ny_total();
     int nz_total = grid_.nz_total();
+    int nvars = config_.num_vars;
 
     // Set initial conditions at all grid points
     for (int i = 0; i < nx_total; i++) {
@@ -88,10 +84,10 @@ void FVMSolver3D::initialize(const InitFunction& init_func) {
                 double y = grid_.cell_center_y(j);
                 double z = grid_.cell_center_z(k);
 
-                Eigen::VectorXd U(5);
+                Eigen::VectorXd U(nvars);
                 init_func(x, y, z, U);
 
-                for (int v = 0; v < 5; v++) {
+                for (int v = 0; v < nvars; v++) {
                     state_(v, i, j, k) = U(v);
                 }
             }
@@ -167,70 +163,154 @@ void FVMSolver3D::compute_rhs() {
     // Zero out RHS
     rhs_.fill(0.0);
 
+    // Reset cached wave speeds
+    max_wave_speed_x_ = 0.0;
+    max_wave_speed_y_ = 0.0;
+    max_wave_speed_z_ = 0.0;
+
     // Compute flux divergence: -dF/dx - dG/dy - dH/dz
+    // Also cache max wave speeds for CFL calculation
     for (int direction = 0; direction < 3; direction++) {
         StateField3D& flux_out = (direction == 0) ? flux_x_ :
                                  (direction == 1) ? flux_y_ : flux_z_;
-        compute_fluxes(direction, flux_out);
+        double& max_speed_cache = (direction == 0) ? max_wave_speed_x_ :
+                                  (direction == 1) ? max_wave_speed_y_ : max_wave_speed_z_;
+
+        compute_fluxes(direction, flux_out, max_speed_cache);
         add_flux_divergence(flux_out, direction);
+    }
+
+    // Add source terms: S(U, x, y, z)
+    // (e.g., for resistive MHD: Ohmic dissipation, GLM divergence cleaning)
+    const auto& geom = grid_.geometry();
+    const int i_begin = grid_.i_begin();
+    const int i_end = grid_.i_end();
+    const int j_begin = grid_.j_begin();
+    const int j_end = grid_.j_end();
+    const int k_begin = grid_.k_begin();
+    const int k_end = grid_.k_end();
+    const int nvars = state_.nvars();
+
+    #pragma omp parallel for collapse(2) if((i_end - i_begin) * (j_end - j_begin) > 100)
+    for (int i = i_begin; i < i_end; i++) {
+        for (int j = j_begin; j < j_end; j++) {
+            for (int k = k_begin; k < k_end; k++) {
+                // Get cell position
+                double x = grid_.cell_center_x(i);
+                double y = grid_.cell_center_y(j);
+                double z = grid_.cell_center_z(k);
+
+                // Get state at this cell
+                Eigen::VectorXd U(nvars);
+                for (int v = 0; v < nvars; v++) {
+                    U(v) = state_(v, i, j, k);
+                }
+
+                // Compute source term (default returns zero for physics without sources)
+                Eigen::VectorXd S = physics_->compute_source(
+                    U, x, y, z, geom.dx, geom.dy, geom.dz
+                );
+
+                // Add source to RHS
+                for (int v = 0; v < nvars; v++) {
+                    rhs_(v, i, j, k) += S(v);
+                }
+            }
+        }
     }
 }
 
-void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out) {
+void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out, double& max_wave_speed_out) {
     flux_out.fill(0.0);
 
-    int i_begin = grid_.i_begin();
-    int i_end = grid_.i_end();
-    int j_begin = grid_.j_begin();
-    int j_end = grid_.j_end();
-    int k_begin = grid_.k_begin();
-    int k_end = grid_.k_end();
+    const int i_begin = grid_.i_begin();
+    const int i_end = grid_.i_end();
+    const int j_begin = grid_.j_begin();
+    const int j_end = grid_.j_end();
+    const int k_begin = grid_.k_begin();
+    const int k_end = grid_.k_end();
+    const int nvars = state_.nvars();
 
+    // Initialize max wave speed for this direction
+    max_wave_speed_out = 0.0;
+
+    // OpenMP parallelization with thread-private Eigen vectors
+    // Each thread gets its own vectors to avoid race conditions
+    // Use reduction to compute max wave speed efficiently
     if (direction == 0) {
         // X-direction fluxes: F_{i+1/2,j,k}
-        for (int i = i_begin - 1; i < i_end; i++) {
-            for (int j = j_begin; j < j_end; j++) {
-                for (int k = k_begin; k < k_end; k++) {
-                    // Get left and right states
-                    Eigen::VectorXd U_L(5), U_R(5);
-                    reconstruct_1d(state_, direction, i, j, k, U_L, U_R);
+        #pragma omp parallel reduction(max:max_wave_speed_out)
+        {
+            Eigen::VectorXd U_L(nvars), U_R(nvars), F(nvars);
 
-                    // Solve Riemann problem
-                    Eigen::VectorXd F = riemann_solver_->solve(U_L, U_R, direction);
+            #pragma omp for collapse(2)
+            for (int i = i_begin - 1; i < i_end; i++) {
+                for (int j = j_begin; j < j_end; j++) {
+                    for (int k = k_begin; k < k_end; k++) {
+                        reconstruct_1d(state_, direction, i, j, k, U_L, U_R);
+                        F = flux_calculator_->compute_flux(U_L, U_R, *physics_, direction);
 
-                    // Store flux at right interface of cell i
-                    for (int v = 0; v < 5; v++) {
-                        flux_out(v, i, j, k) = F(v);
+                        // Compute and cache max wave speed for CFL
+                        double local_speed = flux_calculator_->compute_max_wave_speed(U_L, U_R, *physics_, direction);
+                        max_wave_speed_out = std::max(max_wave_speed_out, local_speed);
+
+                        // SIMD vectorization for flux storage
+                        #pragma omp simd
+                        for (int v = 0; v < nvars; v++) {
+                            flux_out(v, i, j, k) = F(v);
+                        }
                     }
                 }
             }
         }
     } else if (direction == 1) {
         // Y-direction fluxes: G_{i,j+1/2,k}
-        for (int i = i_begin; i < i_end; i++) {
-            for (int j = j_begin - 1; j < j_end; j++) {
-                for (int k = k_begin; k < k_end; k++) {
-                    Eigen::VectorXd U_L(5), U_R(5);
-                    reconstruct_1d(state_, direction, i, j, k, U_L, U_R);
-                    Eigen::VectorXd G = riemann_solver_->solve(U_L, U_R, direction);
+        #pragma omp parallel reduction(max:max_wave_speed_out)
+        {
+            Eigen::VectorXd U_L(nvars), U_R(nvars), F(nvars);
 
-                    for (int v = 0; v < 5; v++) {
-                        flux_out(v, i, j, k) = G(v);
+            #pragma omp for collapse(2)
+            for (int i = i_begin; i < i_end; i++) {
+                for (int j = j_begin - 1; j < j_end; j++) {
+                    for (int k = k_begin; k < k_end; k++) {
+                        reconstruct_1d(state_, direction, i, j, k, U_L, U_R);
+                        F = flux_calculator_->compute_flux(U_L, U_R, *physics_, direction);
+
+                        // Compute and cache max wave speed for CFL
+                        double local_speed = flux_calculator_->compute_max_wave_speed(U_L, U_R, *physics_, direction);
+                        max_wave_speed_out = std::max(max_wave_speed_out, local_speed);
+
+                        // SIMD vectorization for flux storage
+                        #pragma omp simd
+                        for (int v = 0; v < nvars; v++) {
+                            flux_out(v, i, j, k) = F(v);
+                        }
                     }
                 }
             }
         }
     } else {
         // Z-direction fluxes: H_{i,j,k+1/2}
-        for (int i = i_begin; i < i_end; i++) {
-            for (int j = j_begin; j < j_end; j++) {
-                for (int k = k_begin - 1; k < k_end; k++) {
-                    Eigen::VectorXd U_L(5), U_R(5);
-                    reconstruct_1d(state_, direction, i, j, k, U_L, U_R);
-                    Eigen::VectorXd H = riemann_solver_->solve(U_L, U_R, direction);
+        #pragma omp parallel reduction(max:max_wave_speed_out)
+        {
+            Eigen::VectorXd U_L(nvars), U_R(nvars), F(nvars);
 
-                    for (int v = 0; v < 5; v++) {
-                        flux_out(v, i, j, k) = H(v);
+            #pragma omp for collapse(2)
+            for (int i = i_begin; i < i_end; i++) {
+                for (int j = j_begin; j < j_end; j++) {
+                    for (int k = k_begin - 1; k < k_end; k++) {
+                        reconstruct_1d(state_, direction, i, j, k, U_L, U_R);
+                        F = flux_calculator_->compute_flux(U_L, U_R, *physics_, direction);
+
+                        // Compute and cache max wave speed for CFL
+                        double local_speed = flux_calculator_->compute_max_wave_speed(U_L, U_R, *physics_, direction);
+                        max_wave_speed_out = std::max(max_wave_speed_out, local_speed);
+
+                        // SIMD vectorization for flux storage
+                        #pragma omp simd
+                        for (int v = 0; v < nvars; v++) {
+                            flux_out(v, i, j, k) = F(v);
+                        }
                     }
                 }
             }
@@ -240,49 +320,58 @@ void FVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out) {
 
 void FVMSolver3D::add_flux_divergence(const StateField3D& flux, int direction) {
     const auto& geom = grid_.geometry();
-    double inv_dx = 1.0 / geom.dx;
-    double inv_dy = 1.0 / geom.dy;
-    double inv_dz = 1.0 / geom.dz;
+    const double inv_dx = 1.0 / geom.dx;
+    const double inv_dy = 1.0 / geom.dy;
+    const double inv_dz = 1.0 / geom.dz;
 
-    int i_begin = grid_.i_begin();
-    int i_end = grid_.i_end();
-    int j_begin = grid_.j_begin();
-    int j_end = grid_.j_end();
-    int k_begin = grid_.k_begin();
-    int k_end = grid_.k_end();
+    const int i_begin = grid_.i_begin();
+    const int i_end = grid_.i_end();
+    const int j_begin = grid_.j_begin();
+    const int j_end = grid_.j_end();
+    const int k_begin = grid_.k_begin();
+    const int k_end = grid_.k_end();
+    const int nvars = rhs_.nvars();
+
+    // Hybrid OpenMP + SIMD vectorization:
+    // - OpenMP parallel for on outer loops (thread-level parallelism)
+    // - SIMD on innermost loop (instruction-level parallelism)
 
     if (direction == 0) {
         // dF/dx: flux at right - flux at left
-        double inv_dx_local = inv_dx;
-        for (int i = i_begin; i < i_end; i++) {
-            for (int j = j_begin; j < j_end; j++) {
-                for (int k = k_begin; k < k_end; k++) {
-                    for (int v = 0; v < 5; v++) {
-                        rhs_(v, i, j, k) -= (flux(v, i, j, k) - flux(v, i - 1, j, k)) * inv_dx_local;
+        #pragma omp parallel for collapse(2) if(nvars * (i_end - i_begin) * (j_end - j_begin) > 1000)
+        for (int v = 0; v < nvars; v++) {
+            for (int i = i_begin; i < i_end; i++) {
+                for (int j = j_begin; j < j_end; j++) {
+                    // Vectorize innermost loop (k direction - contiguous in memory)
+                    #pragma omp simd
+                    for (int k = k_begin; k < k_end; k++) {
+                        rhs_(v, i, j, k) -= (flux(v, i, j, k) - flux(v, i - 1, j, k)) * inv_dx;
                     }
                 }
             }
         }
     } else if (direction == 1) {
         // dG/dy
-        double inv_dy_local = inv_dy;
-        for (int i = i_begin; i < i_end; i++) {
-            for (int j = j_begin; j < j_end; j++) {
-                for (int k = k_begin; k < k_end; k++) {
-                    for (int v = 0; v < 5; v++) {
-                        rhs_(v, i, j, k) -= (flux(v, i, j, k) - flux(v, i, j - 1, k)) * inv_dy_local;
+        #pragma omp parallel for collapse(2) if(nvars * (i_end - i_begin) * (j_end - j_begin) > 1000)
+        for (int v = 0; v < nvars; v++) {
+            for (int i = i_begin; i < i_end; i++) {
+                for (int j = j_begin; j < j_end; j++) {
+                    #pragma omp simd
+                    for (int k = k_begin; k < k_end; k++) {
+                        rhs_(v, i, j, k) -= (flux(v, i, j, k) - flux(v, i, j - 1, k)) * inv_dy;
                     }
                 }
             }
         }
     } else {
         // dH/dz
-        double inv_dz_local = inv_dz;
-        for (int i = i_begin; i < i_end; i++) {
-            for (int j = j_begin; j < j_end; j++) {
-                for (int k = k_begin; k < k_end; k++) {
-                    for (int v = 0; v < 5; v++) {
-                        rhs_(v, i, j, k) -= (flux(v, i, j, k) - flux(v, i, j, k - 1)) * inv_dz_local;
+        #pragma omp parallel for collapse(2) if(nvars * (i_end - i_begin) * (j_end - j_begin) > 1000)
+        for (int v = 0; v < nvars; v++) {
+            for (int i = i_begin; i < i_end; i++) {
+                for (int j = j_begin; j < j_end; j++) {
+                    #pragma omp simd
+                    for (int k = k_begin; k < k_end; k++) {
+                        rhs_(v, i, j, k) -= (flux(v, i, j, k) - flux(v, i, j, k - 1)) * inv_dz;
                     }
                 }
             }
@@ -295,75 +384,84 @@ void FVMSolver3D::apply_boundary_conditions() {
 }
 
 double FVMSolver3D::compute_dt() {
-    double max_speed = 1e-10;
+    // Use cached wave speeds from flux computation (computed during compute_rhs())
+    // This avoids redundant wave speed calculation for all cells
+    const double max_speed = std::max({max_wave_speed_x_, max_wave_speed_y_, max_wave_speed_z_});
 
-    int i_begin = grid_.i_begin();
-    int i_end = grid_.i_end();
-    int j_begin = grid_.j_begin();
-    int j_end = grid_.j_end();
-    int k_begin = grid_.k_begin();
-    int k_end = grid_.k_end();
+    // Safety check to avoid division by zero
+    if (max_speed < 1e-10) {
+        return 1e-3;  // Return small default time step
+    }
 
-    for (int i = i_begin; i < i_end; i++) {
-        for (int j = j_begin; j < j_end; j++) {
-            for (int k = k_begin; k < k_end; k++) {
-                Eigen::VectorXd U(5);
-                for (int v = 0; v < 5; v++) {
-                    U(v) = state_(v, i, j, k);
-                }
+    const auto& geom = grid_.geometry();
+    const double min_dx = std::min({geom.dx, geom.dy, geom.dz});
 
-                // Check wave speed in each direction
-                for (int dir = 0; dir < 3; dir++) {
-                    double speed = physics_->max_wave_speed(U, dir);
+    return config_.cfl * min_dx / max_speed;
+}
+
+void FVMSolver3D::compute_statistics() {
+    // Initialize statistics
+    double min_rho = 1e10;
+    double max_rho = -1e10;
+    double min_p = 1e10;
+    double max_p = -1e10;
+    double min_speed = 1e10;
+    double max_speed = -1e10;
+
+    const int i_begin = grid_.i_begin();
+    const int i_end = grid_.i_end();
+    const int j_begin = grid_.j_begin();
+    const int j_end = grid_.j_end();
+    const int k_begin = grid_.k_begin();
+    const int k_end = grid_.k_end();
+    const int nvars = config_.num_vars;
+
+    // OpenMP parallel reduction for min/max statistics
+    // Each thread computes local min/max, then reduce to global
+    #pragma omp parallel reduction(min:min_rho,min_p,min_speed) reduction(max:max_rho,max_p,max_speed)
+    {
+        // Thread-private Eigen vectors
+        Eigen::VectorXd U(nvars);
+        Eigen::VectorXd V(nvars);
+
+        #pragma omp for collapse(2)
+        for (int i = i_begin; i < i_end; i++) {
+            for (int j = j_begin; j < j_end; j++) {
+                for (int k = k_begin; k < k_end; k++) {
+                    // Load conservative variables
+                    for (int v = 0; v < nvars; v++) {
+                        U(v) = state_(v, i, j, k);
+                    }
+
+                    // Convert to primitive variables
+                    V = physics_->conservative_to_primitive(U);
+                    const double rho = V(0);
+                    const double u = V(1);
+                    const double v = V(2);
+                    const double w = V(3);
+                    const double p = V(4);
+
+                    // Update local min/max (will be reduced across threads)
+                    min_rho = std::min(min_rho, rho);
+                    max_rho = std::max(max_rho, rho);
+                    min_p = std::min(min_p, p);
+                    max_p = std::max(max_p, p);
+
+                    const double speed = std::sqrt(u*u + v*v + w*w);
+                    min_speed = std::min(min_speed, speed);
                     max_speed = std::max(max_speed, speed);
                 }
             }
         }
     }
 
-    const auto& geom = grid_.geometry();
-    double min_dx = std::min({geom.dx, geom.dy, geom.dz});
-
-    return config_.cfl * min_dx / max_speed;
-}
-
-void FVMSolver3D::compute_statistics() {
-    stats_.min_rho = 1e10;
-    stats_.max_rho = -1e10;
-    stats_.min_p = 1e10;
-    stats_.max_p = -1e10;
-    stats_.min_speed = 1e10;
-    stats_.max_speed = -1e10;
-
-    int i_begin = grid_.i_begin();
-    int i_end = grid_.i_end();
-    int j_begin = grid_.j_begin();
-    int j_end = grid_.j_end();
-    int k_begin = grid_.k_begin();
-    int k_end = grid_.k_end();
-
-    for (int i = i_begin; i < i_end; i++) {
-        for (int j = j_begin; j < j_end; j++) {
-            for (int k = k_begin; k < k_end; k++) {
-                Eigen::VectorXd U(5);
-                for (int v = 0; v < 5; v++) {
-                    U(v) = state_(v, i, j, k);
-                }
-
-                double rho, u, v, w, p;
-                physics_->conservative_to_primitive(U, rho, u, v, w, p);
-
-                stats_.min_rho = std::min(stats_.min_rho, rho);
-                stats_.max_rho = std::max(stats_.max_rho, rho);
-                stats_.min_p = std::min(stats_.min_p, p);
-                stats_.max_p = std::max(stats_.max_p, p);
-
-                double speed = std::sqrt(u*u + v*v + w*w);
-                stats_.min_speed = std::min(stats_.min_speed, speed);
-                stats_.max_speed = std::max(stats_.max_speed, speed);
-            }
-        }
-    }
+    // Store results in stats struct
+    stats_.min_rho = min_rho;
+    stats_.max_rho = max_rho;
+    stats_.min_p = min_p;
+    stats_.max_p = max_p;
+    stats_.min_speed = min_speed;
+    stats_.max_speed = max_speed;
 }
 
 void FVMSolver3D::print_progress() {
@@ -375,63 +473,7 @@ void FVMSolver3D::print_progress() {
               << " | p:[" << stats_.min_p << "," << stats_.max_p << "]\n";
 }
 
-void FVMSolver3D::reconstruct_1d(
-    const StateField3D& state,
-    int direction,
-    int i, int j, int k,
-    Eigen::VectorXd& U_L,
-    Eigen::VectorXd& U_R
-) {
-    U_L.resize(5);
-    U_R.resize(5);
-
-    if (direction == 0) {
-        // Reconstruct at interface between cells i and i+1
-        for (int v = 0; v < 5; v++) {
-            double U_LL = state(v, i - 1, j, k);
-            double U_L_val = state(v, i, j, k);
-            double U_C = state(v, i + 1, j, k);
-            double U_R_val = state(v, i + 2, j, k);
-            double U_RR = state(v, i + 3, j, k);
-
-            double recon_L, recon_R;
-            reconstruction_->reconstruct(U_LL, U_L_val, U_C, U_R_val, U_RR, recon_L, recon_R);
-
-            U_L(v) = recon_R;  // Right side of cell i
-            U_R(v) = recon_L;  // Left side of cell i+1
-        }
-    } else if (direction == 1) {
-        // Reconstruct at interface between cells j and j+1
-        for (int v = 0; v < 5; v++) {
-            double U_LL = state(v, i, j - 1, k);
-            double U_L_val = state(v, i, j, k);
-            double U_C = state(v, i, j + 1, k);
-            double U_R_val = state(v, i, j + 2, k);
-            double U_RR = state(v, i, j + 3, k);
-
-            double recon_L, recon_R;
-            reconstruction_->reconstruct(U_LL, U_L_val, U_C, U_R_val, U_RR, recon_L, recon_R);
-
-            U_L(v) = recon_R;
-            U_R(v) = recon_L;
-        }
-    } else {
-        // Reconstruct at interface between cells k and k+1
-        for (int v = 0; v < 5; v++) {
-            double U_LL = state(v, i, j, k - 1);
-            double U_L_val = state(v, i, j, k);
-            double U_C = state(v, i, j, k + 1);
-            double U_R_val = state(v, i, j, k + 2);
-            double U_RR = state(v, i, j, k + 3);
-
-            double recon_L, recon_R;
-            reconstruction_->reconstruct(U_LL, U_L_val, U_C, U_R_val, U_RR, recon_L, recon_R);
-
-            U_L(v) = recon_R;
-            U_R(v) = recon_L;
-        }
-    }
-}
+// Note: reconstruct_1d() is now inherited from FVMSolverBase
 
 void FVMSolver3D::save_checkpoint(
     const std::string& filename,

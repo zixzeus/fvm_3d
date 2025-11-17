@@ -1,10 +1,7 @@
 #include "core/grid3d.hpp"
 #include "core/field3d.hpp"
 #include "physics/euler3d.hpp"
-#include "spatial/riemann_hll.hpp"
-#include "spatial/riemann_hllc.hpp"
-#include "spatial/riemann_laxfriedrichs.hpp"
-#include "spatial/riemann_solver_factory.hpp"
+#include "spatial/flux_calculation/flux_calculator_factory.hpp"
 #include "temporal/forward_euler.hpp"
 #include "boundary/periodic_bc.hpp"
 #include <iostream>
@@ -69,6 +66,9 @@ int main(int argc, char** argv) {
               << "  dx, dy, dz = " << geom.dx << ", " << geom.dy << ", " << geom.dz << "\n"
               << "  Ghost cells: " << grid.nghost() << "\n\n";
 
+    // Create physics object
+    auto physics = std::make_shared<physics::EulerEquations3D>();
+
     // Create state field (conservative variables)
     core::StateField3D state(5, grid.nx_total(), grid.ny_total(), grid.nz_total());
     state.fill(0.0);
@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
     }
 
     // Apply boundary conditions
-    boundary::PeriodicBC bc(true, true, true);
+    boundary::PeriodicBC bc(physics, true, true, true);
     bc.apply(state, grid);
 
     std::cout << "Initial condition set.\n\n";
@@ -103,14 +103,11 @@ int main(int argc, char** argv) {
     int j_center = grid.j_begin() + geom.ny / 2;
     int k_center = grid.k_begin() + geom.nz / 2;
 
-    physics::EulerEquations3D euler;
-
     Eigen::VectorXd U_center(5);
     for (int v = 0; v < 5; v++) {
         U_center(v) = state(v, i_center, j_center, k_center);
     }
-
-    double rho, u, v, w, p;
+    
     Eigen::VectorXd dummy(5);
 
     std::cout << std::fixed << std::setprecision(6);
@@ -121,29 +118,29 @@ int main(int argc, char** argv) {
     std::cout << "  rho_w = " << U_center(3) << "\n";
     std::cout << "  E = " << U_center(4) << "\n";
 
-    // Test all Riemann solvers
-    std::cout << "\nTesting Riemann Solvers:\n";
+    // Test all flux calculators
+    std::cout << "\nTesting Flux Calculators:\n";
 
     Eigen::VectorXd U_L(5), U_R(5);
     U_L << 1.0, 0.0, 0.0, 0.0, 2.5;      // Sod shock tube left state
     U_R << 0.125, 0.0, 0.0, 0.0, 0.25;   // Sod shock tube right state
 
-    // Test using factory pattern
-    std::vector<std::string> solver_names = {"laxfriedrichs", "hll", "hllc"};
+    // Test using factory pattern (unified flux calculator interface)
+    std::vector<std::string> flux_calc_names = {"laxfriedrichs", "hll", "hllc"};
 
-    for (const auto& solver_name : solver_names) {
-        auto solver = spatial::RiemannSolverFactory::create(solver_name);
-        Eigen::VectorXd flux = solver->solve(U_L, U_R, 0);
-        double wave_speed = solver->max_wave_speed(U_L, U_R, 0);
+    for (const auto& calc_name : flux_calc_names) {
+        auto flux_calc = spatial::FluxCalculatorFactory::create(calc_name, physics);
+        Eigen::VectorXd flux = flux_calc->compute_flux(U_L, U_R, *physics, 0);
+        double wave_speed = flux_calc->compute_max_wave_speed(U_L, U_R, *physics, 0);
 
-        std::cout << "  " << solver->name() << ":\n";
+        std::cout << "  " << flux_calc->name() << ":\n";
         std::cout << "    Flux = [" << flux.transpose() << "]\n";
         std::cout << "    Max wave speed = " << wave_speed << "\n";
     }
 
-    // Print available solvers
-    std::cout << "\n  Available solvers:\n";
-    spatial::RiemannSolverFactory::print_available_solvers();
+    // Print available flux calculators
+    std::cout << "\n  Available flux calculators:\n";
+    spatial::FluxCalculatorFactory::print_available();
 
     // Test time integrators
     std::cout << "\nTesting Time Integrators:\n";

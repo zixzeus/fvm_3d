@@ -33,7 +33,11 @@ int main() {
         config.nz = 8;
         config.nghost = 2;
 
-        config.riemann_solver = "hll";
+        // Physics configuration
+        config.physics_type = "euler";
+        config.num_vars = 5;
+
+        config.flux_calculator = "hll";
         config.reconstruction = "muscl";
         config.reconstruction_limiter = "van_leer";
         config.time_integrator = "rk2";
