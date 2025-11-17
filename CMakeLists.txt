@@ -70,6 +70,7 @@ set(BOUNDARY_SOURCES
 
 set(IO_SOURCES
     src/io/hdf5_checkpoint.cpp
+    src/io/hdf5_utils.cpp
     src/io/mpi_hdf5_checkpoint.cpp
     src/io/vtk_writer.cpp
     src/io/parallel_vtk_writer.cpp

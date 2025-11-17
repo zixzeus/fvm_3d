@@ -1,4 +1,5 @@
 #include "io/hdf5_checkpoint.hpp"
+#include "io/hdf5_utils.hpp"
 #include <hdf5.h>
 #include <iostream>
 #include <iomanip>
@@ -234,13 +235,13 @@ void HDF5Checkpoint::save_state(void* file_id_void, const StateField3D& state) {
         hsize_t dims[3] = {(hsize_t)nx, (hsize_t)ny, (hsize_t)nz};
         hid_t space_id = H5Screate_simple(3, dims, nullptr);
 
-        const char* var_names[5] = {"rho", "rho_u", "rho_v", "rho_w", "E"};
+        auto var_names = hdf5_utils::get_variable_names(5);
 
         // Save each variable
         for (int v = 0; v < 5; v++) {
             hid_t dset_id = H5Dcreate(
                 group_id,
-                var_names[v],
+                var_names[v].c_str(),
                 H5T_IEEE_F64LE,
                 space_id,
                 H5P_DEFAULT,
@@ -248,15 +249,9 @@ void HDF5Checkpoint::save_state(void* file_id_void, const StateField3D& state) {
                 H5P_DEFAULT
             );
 
-            // Write data for this variable
-            std::vector<double> var_data(nx * ny * nz);
-            for (int i = 0; i < nx; i++) {
-                for (int j = 0; j < ny; j++) {
-                    for (int k = 0; k < nz; k++) {
-                        var_data[i * ny * nz + j * nz + k] = state(v, i, j, k);
-                    }
-                }
-            }
+            // Extract and write data for this variable using helper
+            std::vector<double> var_data;
+            hdf5_utils::extract_interior_cells(state, v, nx, ny, nz, 0, var_data);
 
             H5Dwrite(dset_id, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, var_data.data());
             H5Dclose(dset_id);
@@ -294,29 +289,13 @@ void HDF5Checkpoint::save_metadata(
     }
 
     try {
-        hid_t attr_space = H5Screate(H5S_SCALAR);
+        // Save attributes using utility functions
+        hdf5_utils::write_scalar_attribute(group_id, "time", time);
+        hdf5_utils::write_scalar_attribute(group_id, "step_count", step_count);
 
-        // Save time
-        hid_t attr_time = H5Acreate(group_id, "time", H5T_IEEE_F64LE, attr_space, H5P_DEFAULT, H5P_DEFAULT);
-        H5Awrite(attr_time, H5T_NATIVE_DOUBLE, &time);
-        H5Aclose(attr_time);
-
-        // Save step count
-        hid_t attr_step = H5Acreate(group_id, "step_count", H5T_STD_I32LE, attr_space, H5P_DEFAULT, H5P_DEFAULT);
-        H5Awrite(attr_step, H5T_NATIVE_INT, &step_count);
-        H5Aclose(attr_step);
-
-        // Save description (if not empty)
         if (!description.empty()) {
-            hid_t str_type = H5Tcopy(H5T_C_S1);
-            H5Tset_size(str_type, description.length());
-            hid_t attr_desc = H5Acreate(group_id, "description", str_type, attr_space, H5P_DEFAULT, H5P_DEFAULT);
-            H5Awrite(attr_desc, str_type, description.c_str());
-            H5Aclose(attr_desc);
-            H5Tclose(str_type);
+            hdf5_utils::write_string_attribute(group_id, "description", description);
         }
-
-        H5Sclose(attr_space);
 
     } catch (...) {
         H5Gclose(group_id);
@@ -356,13 +335,13 @@ bool HDF5Checkpoint::load_state(void* file_id_void, StateField3D& state) {
     }
 
     try {
-        const char* var_names[5] = {"rho", "rho_u", "rho_v", "rho_w", "E"};
+        auto var_names = hdf5_utils::get_variable_names(5);
         int nx = state.nx();
         int ny = state.ny();
         int nz = state.nz();
 
         for (int v = 0; v < 5; v++) {
-            hid_t dset_id = H5Dopen(group_id, var_names[v], H5P_DEFAULT);
+            hid_t dset_id = H5Dopen(group_id, var_names[v].c_str(), H5P_DEFAULT);
             if (dset_id < 0) {
                 std::cerr << "Failed to open dataset " << var_names[v] << "\n";
                 H5Gclose(group_id);
@@ -372,14 +351,8 @@ bool HDF5Checkpoint::load_state(void* file_id_void, StateField3D& state) {
             std::vector<double> var_data(nx * ny * nz);
             H5Dread(dset_id, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, var_data.data());
 
-            // Copy data back to state field
-            for (int i = 0; i < nx; i++) {
-                for (int j = 0; j < ny; j++) {
-                    for (int k = 0; k < nz; k++) {
-                        state(v, i, j, k) = var_data[i * ny * nz + j * nz + k];
-                    }
-                }
-            }
+            // Insert data into state field using helper
+            hdf5_utils::insert_interior_cells(state, v, var_data, nx, ny, nz, 0);
 
             H5Dclose(dset_id);
         }
