@@ -73,9 +73,9 @@ int main(int argc, char* argv[]) {
 
     // Time stepping
     config.cfl = 0.4;
-    config.t_final = 50.0;  // Alfvén time ~ 10
-    config.num_steps = 1000;
-    config.output_interval = 10;
+    config.t_final = 50.0;     // Final time (Alfvén time ~ 10)
+    config.num_steps = 1000000; // Large number, actual termination by t_final
+    config.output_interval = 50;
     config.verbose = 1;
 
     std::cout << "Configuration:\n";
