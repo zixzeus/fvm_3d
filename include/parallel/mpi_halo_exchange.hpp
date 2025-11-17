@@ -68,6 +68,9 @@ private:
     int nghost_;
     bool exchange_pending_;
 
+    // State pointer for async exchange (valid only during pending exchange)
+    StateField3D* exchange_state_;
+
     // MPI request handles for non-blocking communication
     std::vector<MPI_Request> requests_;
 

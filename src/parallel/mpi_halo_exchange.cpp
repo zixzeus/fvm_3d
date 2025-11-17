@@ -9,7 +9,7 @@ MPIHaloExchange::MPIHaloExchange(
     const std::shared_ptr<MPIDomainDecomposer>& decomposer,
     int nghost
 )
-    : decomposer_(decomposer), nghost_(nghost), exchange_pending_(false) {
+    : decomposer_(decomposer), nghost_(nghost), exchange_pending_(false), exchange_state_(nullptr) {
 
     if (!decomposer_) {
         throw std::invalid_argument("Domain decomposer required");
@@ -60,6 +60,8 @@ void MPIHaloExchange::start_exchange(StateField3D& state) {
         throw std::runtime_error("Exchange already in progress");
     }
 
+    // Store state pointer for unpacking in wait_exchange()
+    exchange_state_ = &state;
     requests_.clear();
 
     // Post non-blocking exchanges for all directions
@@ -86,7 +88,22 @@ void MPIHaloExchange::wait_exchange() {
         MPIUtils::check_mpi_error(error, "MPI_Waitall");
     }
 
+    // Unpack received data into ghost cells
+    if (exchange_state_) {
+        for (int direction = 0; direction < 3; direction++) {
+            // Unpack minus-side received data
+            if (decomposer_->has_neighbor(direction, -1)) {
+                unpack_recv_buffer(*exchange_state_, direction, -1);
+            }
+            // Unpack plus-side received data
+            if (decomposer_->has_neighbor(direction, +1)) {
+                unpack_recv_buffer(*exchange_state_, direction, +1);
+            }
+        }
+    }
+
     exchange_pending_ = false;
+    exchange_state_ = nullptr;
 }
 
 void MPIHaloExchange::post_exchange_direction(
@@ -152,13 +169,14 @@ void MPIHaloExchange::post_exchange_direction(
         MPIUtils::check_mpi_error(error, "MPI_Isend (plus)");
         requests_.push_back(req_send);
 
-        // Receive ghost data from neighbor
+        // Receive ghost data from neighbor's minus-side send
+        // Must use minus-side tag to match neighbor's send
         error = MPI_Irecv(
             recv_buffer_xp_.data(),
             recv_buffer_xp_.size(),
             MPI_DOUBLE,
             neighbor,
-            tag + 1,
+            direction * 2,  // Match minus-side send tag
             decomposer_->cartesian_comm(),
             &req_recv
         );
