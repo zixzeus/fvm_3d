@@ -1,4 +1,5 @@
 #include "core/mpi_fvm_solver3d.hpp"
+#include "physics/physics_factory.hpp"
 #include "spatial/flux_calculation/flux_calculator_factory.hpp"
 #include "temporal/time_integrator_factory.hpp"
 #include "spatial/reconstruction/reconstruction_factory.hpp"
@@ -82,22 +83,30 @@ MPIFVMSolver3D::MPIFVMSolver3D(const MPIFVMSolverConfig& config)
 
     global_reduction_ = std::make_unique<parallel::MPIGlobalReduction>();
 
-    // Initialize physics
-    if (config.physics_type == "euler") {
-        physics_ = std::make_shared<physics::EulerEquations3D>();
-    } else if (config.physics_type == "mhd_advanced" || config.physics_type == "mhd") {
+    // Initialize physics using PhysicsFactory
+    if (config.physics_type == "mhd_advanced") {
+        // Advanced MHD with configurable resistivity model and GLM parameters
         physics::AdvancedResistiveMHD3D::ResistivityModel resistivity;
-        resistivity.eta0 = 1e-3;
-        resistivity.eta1 = 0.01667;
-        resistivity.localization_scale = 1.0;
-        physics::AdvancedResistiveMHD3D::GLMParameters glm(0.2, 0.2);
-        physics_ = std::make_shared<physics::AdvancedResistiveMHD3D>(resistivity, glm);
+        resistivity.eta0 = config.mhd_eta0;
+        resistivity.eta1 = config.mhd_eta1;
+        resistivity.localization_scale = config.mhd_localization_scale;
+
+        physics::AdvancedResistiveMHD3D::GLMParameters glm(
+            config.mhd_glm_ch,
+            config.mhd_glm_cr
+        );
+
+        physics_ = physics::PhysicsFactory::create_advanced_mhd(resistivity, glm);
     } else {
-        throw std::invalid_argument("Unknown physics type: " + config.physics_type);
+        // Euler or basic MHD
+        physics_ = physics::PhysicsFactory::create(
+            config.physics_type,
+            config.mhd_resistivity
+        );
     }
 
-    // Initialize flux calculator
-    flux_calculator_ = spatial::FluxCalculatorFactory::create(config.flux_calculator, config.physics_type, config.num_vars);
+    // Initialize flux calculator using physics object
+    flux_calculator_ = spatial::FluxCalculatorFactory::create(config.flux_calculator, physics_);
 
     // Initialize reconstruction scheme
     reconstruction_ = spatial::ReconstructionFactory::create(
@@ -280,6 +289,44 @@ void MPIFVMSolver3D::compute_rhs() {
 
     compute_fluxes(2, *flux_z_);
     add_flux_divergence(*flux_z_, 2);
+
+    // Add source terms: S(U, x, y, z)
+    const auto& geom = local_grid_->geometry();
+    const int i_begin = local_grid_->i_begin();
+    const int i_end = local_grid_->i_end();
+    const int j_begin = local_grid_->j_begin();
+    const int j_end = local_grid_->j_end();
+    const int k_begin = local_grid_->k_begin();
+    const int k_end = local_grid_->k_end();
+    const int nvars = state_->nvars();
+
+    #pragma omp parallel for collapse(2) if((i_end - i_begin) * (j_end - j_begin) > 100)
+    for (int i = i_begin; i < i_end; i++) {
+        for (int j = j_begin; j < j_end; j++) {
+            for (int k = k_begin; k < k_end; k++) {
+                // Get cell position
+                double x = local_grid_->cell_center_x(i);
+                double y = local_grid_->cell_center_y(j);
+                double z = local_grid_->cell_center_z(k);
+
+                // Get state at this cell
+                Eigen::VectorXd U(nvars);
+                for (int v = 0; v < nvars; v++) {
+                    U(v) = (*state_)(v, i, j, k);
+                }
+
+                // Compute source term
+                Eigen::VectorXd S = physics_->compute_source(
+                    U, x, y, z, geom.dx, geom.dy, geom.dz
+                );
+
+                // Add source to RHS
+                for (int v = 0; v < nvars; v++) {
+                    (*rhs_)(v, i, j, k) += S(v);
+                }
+            }
+        }
+    }
 }
 
 void MPIFVMSolver3D::compute_fluxes(int direction, StateField3D& flux_out) {

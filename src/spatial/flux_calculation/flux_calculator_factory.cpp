@@ -1,41 +1,21 @@
 #include "spatial/flux_calculation/flux_calculator_factory.hpp"
 #include "spatial/flux_calculation/lax_friedrichs.hpp"
 #include "spatial/flux_calculation/riemann_flux.hpp"
-#include "physics/euler3d.hpp"
-#include "physics/resistive_mhd3d_advanced.hpp"
+#include "physics/physics_factory.hpp"
 #include <algorithm>
 #include <iostream>
 
 namespace fvm3d::spatial {
 
+// Preferred method: accepts existing physics object
 std::unique_ptr<FluxCalculator> FluxCalculatorFactory::create(
     const std::string& name,
-    const std::string& physics_type,
-    int num_vars
+    const std::shared_ptr<physics::PhysicsBase>& physics
 ) {
     // Convert name to lowercase for case-insensitive matching
     std::string name_lower = name;
     std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(),
                    [](unsigned char c) { return std::tolower(c); });
-
-    // Create physics object based on physics_type
-    std::shared_ptr<physics::PhysicsBase> physics;
-
-    if (physics_type == "euler") {
-        physics = std::make_shared<physics::EulerEquations3D>();
-    } else if (physics_type == "mhd_advanced" || physics_type == "mhd") {
-        // Advanced resistive MHD with GLM divergence cleaning
-        physics::AdvancedResistiveMHD3D::ResistivityModel resistivity;
-        resistivity.eta0 = 1e-3;               // Background resistivity
-        resistivity.eta1 = 0.01667;            // Enhanced resistivity
-        resistivity.localization_scale = 1.0;  // Localization width
-
-        physics::AdvancedResistiveMHD3D::GLMParameters glm(0.2, 0.2);  // ch=0.2, cr=0.2
-
-        physics = std::make_shared<physics::AdvancedResistiveMHD3D>(resistivity, glm);
-    } else {
-        throw std::invalid_argument("Unknown physics type: " + physics_type);
-    }
 
     // Lax-Friedrichs flux calculator
     if (name_lower == "laxfriedrichs" || name_lower == "lf") {
@@ -56,6 +36,20 @@ std::unique_ptr<FluxCalculator> FluxCalculatorFactory::create(
     // } else if (name_lower == "ausm") {
     //     return std::make_unique<AUSMFluxCalculator>(physics);
     // }
+}
+
+// Deprecated method: creates physics object internally
+std::unique_ptr<FluxCalculator> FluxCalculatorFactory::create(
+    const std::string& name,
+    const std::string& physics_type,
+    int num_vars
+) {
+    // Create physics object using PhysicsFactory
+    // Note: Uses default parameters, may not match solver's physics configuration
+    auto physics = physics::PhysicsFactory::create(physics_type, 0.0);
+
+    // Delegate to new create() method
+    return create(name, physics);
 }
 
 std::vector<std::string> FluxCalculatorFactory::supported_calculators() {

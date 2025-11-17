@@ -27,6 +27,14 @@ struct FVMSolverConfig {
     std::string physics_type;       // "euler", "mhd", "mhd_advanced"
     int num_vars;                   // Number of variables (5 for Euler, 8/9 for MHD)
 
+    // MHD-specific parameters (only used when physics_type = "mhd" or "mhd_advanced")
+    double mhd_resistivity = 0.0;            // Basic resistivity for simple MHD
+    double mhd_eta0 = 1e-3;                  // Background resistivity for advanced MHD
+    double mhd_eta1 = 1.67e-2;               // Enhanced resistivity for advanced MHD
+    double mhd_localization_scale = 1.0;     // Resistivity localization scale
+    double mhd_glm_ch = 0.2;                 // GLM divergence wave speed
+    double mhd_glm_cr = 0.2;                 // GLM parabolic dissipation ratio
+
     // Numerical schemes
     std::string flux_calculator;    // "laxfriedrichs", "hll", "hllc", "hlld"
     std::string reconstruction;     // "constant", "muscl"
