@@ -190,6 +190,11 @@ private:
         double min_p, max_p;
         double min_speed, max_speed;
         double min_B, max_B;  // For MHD
+        double kinetic_energy;
+        double magnetic_energy;
+        double internal_energy;
+        double total_energy;
+        double max_div_B;
     } stats_;
 
     /**
@@ -225,6 +230,18 @@ private:
      * Compute local statistics and perform global reduction.
      */
     void compute_statistics();
+
+    /**
+     * Apply positivity-preserving limiter to ensure ρ > 0 and p > 0.
+     * Applied to local subdomain.
+     */
+    void apply_positivity_limiter();
+
+    /**
+     * Compute maximum divergence of magnetic field on local subdomain.
+     * Requires global reduction to get true maximum.
+     */
+    double compute_max_div_B() const;
 
     /**
      * Print progress information (rank 0 only).

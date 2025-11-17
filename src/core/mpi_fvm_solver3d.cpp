@@ -315,6 +315,10 @@ void MPIFVMSolver3D::step() {
         }
     }
 
+    // ========== POSITIVITY LIMITER ==========
+    // Ensure ρ > 0 and p > 0 after time evolution
+    apply_positivity_limiter();
+
     // Update time and step counter
     t_current_ += dt_;
     step_count_++;
@@ -619,17 +623,66 @@ void MPIFVMSolver3D::compute_statistics() {
     int ny = local_grid_->ny_local();
     int nz = local_grid_->nz_local();
     int ng = local_grid_->nghost();
+    int nvars = config_.num_vars;
 
-    // Compute local min/max
+    // Compute local statistics
     double local_min_rho = 1e10;
     double local_max_rho = -1e10;
+    double local_min_p = 1e10;
+    double local_max_p = -1e10;
+    double local_min_speed = 1e10;
+    double local_max_speed = -1e10;
+    double local_kinetic_energy = 0.0;
+    double local_magnetic_energy = 0.0;
+    double local_internal_energy = 0.0;
+
+    const auto& geom = local_grid_->geometry();
+    const double dV = geom.dx * geom.dy * geom.dz;
+
+    Eigen::VectorXd U(nvars);
+    Eigen::VectorXd V(nvars);
 
     for (int i = ng; i < nx + ng; i++) {
         for (int j = ng; j < ny + ng; j++) {
             for (int k = ng; k < nz + ng; k++) {
-                double rho = (*state_)(0, i, j, k);
+                // Load conservative variables
+                for (int v = 0; v < nvars; v++) {
+                    U(v) = (*state_)(v, i, j, k);
+                }
+
+                // Convert to primitive
+                V = physics_->conservative_to_primitive(U);
+                const double rho = V(0);
+                const double u = V(1);
+                const double v = V(2);
+                const double w = V(3);
+                const double p = V(4);
+
+                // Update min/max
                 local_min_rho = std::min(local_min_rho, rho);
                 local_max_rho = std::max(local_max_rho, rho);
+                local_min_p = std::min(local_min_p, p);
+                local_max_p = std::max(local_max_p, p);
+
+                const double speed = std::sqrt(u*u + v*v + w*w);
+                local_min_speed = std::min(local_min_speed, speed);
+                local_max_speed = std::max(local_max_speed, speed);
+
+                // Compute energies for MHD
+                if (nvars == 9) {
+                    // Kinetic energy
+                    local_kinetic_energy += 0.5 * rho * (u*u + v*v + w*w) * dV;
+
+                    // Magnetic energy
+                    const double Bx = V(5);
+                    const double By = V(6);
+                    const double Bz = V(7);
+                    local_magnetic_energy += 0.5 * (Bx*Bx + By*By + Bz*Bz) * dV;
+
+                    // Internal energy
+                    const double gamma = 5.0/3.0;
+                    local_internal_energy += p / (gamma - 1.0) * dV;
+                }
             }
         }
     }
@@ -637,14 +690,141 @@ void MPIFVMSolver3D::compute_statistics() {
     // Global reductions
     stats_.min_rho = global_reduction_->global_min(local_min_rho);
     stats_.max_rho = global_reduction_->global_max(local_max_rho);
+    stats_.min_p = global_reduction_->global_min(local_min_p);
+    stats_.max_p = global_reduction_->global_max(local_max_p);
+    stats_.min_speed = global_reduction_->global_min(local_min_speed);
+    stats_.max_speed = global_reduction_->global_max(local_max_speed);
+    stats_.kinetic_energy = global_reduction_->global_sum(local_kinetic_energy);
+    stats_.magnetic_energy = global_reduction_->global_sum(local_magnetic_energy);
+    stats_.internal_energy = global_reduction_->global_sum(local_internal_energy);
+    stats_.total_energy = stats_.kinetic_energy + stats_.magnetic_energy + stats_.internal_energy;
+
+    // Compute div(B) with global reduction
+    double local_max_div_B = compute_max_div_B();
+    stats_.max_div_B = global_reduction_->global_max(local_max_div_B);
 }
 
 void MPIFVMSolver3D::print_progress() {
-    std::cout << "Step " << std::setw(6) << step_count_
-              << " | t = " << std::scientific << std::setprecision(4) << t_current_
-              << " | dt = " << dt_
-              << " | rho: [" << stats_.min_rho << ", " << stats_.max_rho << "]"
-              << "\n";
+    if (config_.num_vars == 9) {
+        // MHD output with energies and div(B)
+        std::cout << std::scientific << std::setprecision(3)
+                  << "Step " << std::setw(6) << step_count_
+                  << " | t=" << std::setw(9) << t_current_
+                  << " | dt=" << std::setw(9) << dt_
+                  << " | KE=" << std::setw(9) << stats_.kinetic_energy
+                  << " | BE=" << std::setw(9) << stats_.magnetic_energy
+                  << " | E_tot=" << std::setw(9) << stats_.total_energy
+                  << " | div(B)=" << std::setw(9) << stats_.max_div_B
+                  << " | p:[" << stats_.min_p << "," << stats_.max_p << "]\n";
+    } else {
+        // Euler output
+        std::cout << std::scientific << std::setprecision(6)
+                  << "Step " << std::setw(6) << step_count_
+                  << " | Time " << std::setw(12) << t_current_
+                  << " | dt " << std::setw(12) << dt_
+                  << " | rho:[" << stats_.min_rho << "," << stats_.max_rho << "]"
+                  << " | p:[" << stats_.min_p << "," << stats_.max_p << "]\n";
+    }
+}
+
+double MPIFVMSolver3D::compute_max_div_B() const {
+    // Only compute for MHD simulations
+    if (config_.num_vars != 9) {
+        return 0.0;
+    }
+
+    int nx = local_grid_->nx_local();
+    int ny = local_grid_->ny_local();
+    int nz = local_grid_->nz_local();
+    int ng = local_grid_->nghost();
+
+    const auto& geom = local_grid_->geometry();
+    const double inv_dx = 1.0 / geom.dx;
+    const double inv_dy = 1.0 / geom.dy;
+    const double inv_dz = 1.0 / geom.dz;
+
+    double max_div_B = 0.0;
+
+    // Compute div(B) = dBx/dx + dBy/dy + dBz/dz using centered differences
+    for (int i = ng + 1; i < nx + ng - 1; i++) {
+        for (int j = ng + 1; j < ny + ng - 1; j++) {
+            for (int k = ng + 1; k < nz + ng - 1; k++) {
+                const double dBx_dx = ((*state_)(5, i+1, j, k) - (*state_)(5, i-1, j, k)) * 0.5 * inv_dx;
+                const double dBy_dy = ((*state_)(6, i, j+1, k) - (*state_)(6, i, j-1, k)) * 0.5 * inv_dy;
+                const double dBz_dz = ((*state_)(7, i, j, k+1) - (*state_)(7, i, j, k-1)) * 0.5 * inv_dz;
+
+                const double div_B = std::abs(dBx_dx + dBy_dy + dBz_dz);
+                max_div_B = std::max(max_div_B, div_B);
+            }
+        }
+    }
+
+    return max_div_B;
+}
+
+void MPIFVMSolver3D::apply_positivity_limiter() {
+    int nx = local_grid_->nx_local();
+    int ny = local_grid_->ny_local();
+    int nz = local_grid_->nz_local();
+    int ng = local_grid_->nghost();
+    int nvars = config_.num_vars;
+
+    // Density and pressure floors
+    const double rho_floor = 1.0e-10;
+    const double p_floor = 1.0e-10;
+
+    int local_num_fixes = 0;
+
+    Eigen::VectorXd U(nvars);
+    Eigen::VectorXd V(nvars);
+
+    for (int i = ng; i < nx + ng; i++) {
+        for (int j = ng; j < ny + ng; j++) {
+            for (int k = ng; k < nz + ng; k++) {
+                // Load conservative variables
+                for (int v = 0; v < nvars; v++) {
+                    U(v) = (*state_)(v, i, j, k);
+                }
+
+                // Convert to primitive to check positivity
+                V = physics_->conservative_to_primitive(U);
+
+                bool needs_fix = false;
+
+                // Check density
+                if (V(0) < rho_floor) {
+                    V(0) = rho_floor;
+                    needs_fix = true;
+                }
+
+                // Check pressure (index 4 for MHD/Euler)
+                if (nvars >= 5 && V(4) < p_floor) {
+                    V(4) = p_floor;
+                    needs_fix = true;
+                }
+
+                // If fixes were applied, convert back to conservative
+                if (needs_fix) {
+                    U = physics_->primitive_to_conservative(V);
+
+                    // Write back to state
+                    for (int v = 0; v < nvars; v++) {
+                        (*state_)(v, i, j, k) = U(v);
+                    }
+
+                    local_num_fixes++;
+                }
+            }
+        }
+    }
+
+    // Global sum to get total number of fixes across all ranks
+    int global_num_fixes = static_cast<int>(global_reduction_->global_sum(static_cast<double>(local_num_fixes)));
+
+    // Report if fixes were applied (rank 0 only)
+    if (global_num_fixes > 0 && config_.verbose > 0 && parallel::MPIUtils::is_root()) {
+        std::cout << "  [Positivity limiter] Fixed " << global_num_fixes << " cells\n";
+    }
 }
 
 void MPIFVMSolver3D::save_checkpoint(const std::string& filename, const std::string& description) {
