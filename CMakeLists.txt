@@ -113,6 +113,9 @@ target_link_libraries(test_hdf5_checkpoint fvm3d_lib Eigen3::Eigen ${HDF5_C_LIBR
 add_executable(harris_sheet_3d examples/harris_sheet_3d.cpp)
 target_link_libraries(harris_sheet_3d fvm3d_lib Eigen3::Eigen ${HDF5_C_LIBRARIES} MPI::MPI_CXX)
 
+add_executable(harris_sheet_fvm examples/harris_sheet_fvm.cpp)
+target_link_libraries(harris_sheet_fvm fvm3d_lib Eigen3::Eigen ${HDF5_C_LIBRARIES} MPI::MPI_CXX)
+
 # New MPI-parallel examples
 add_executable(mpi_blast_wave_3d examples/mpi_blast_wave_3d.cpp)
 target_link_libraries(mpi_blast_wave_3d fvm3d_lib Eigen3::Eigen ${HDF5_C_LIBRARIES} MPI::MPI_CXX)
