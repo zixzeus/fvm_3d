@@ -1,4 +1,5 @@
 #include "core/fvm_solver3d.hpp"
+#include "physics/resistive_mhd3d_advanced.hpp"
 #include "io/hdf5_checkpoint.hpp"
 #include <iostream>
 #include <iomanip>
@@ -137,6 +138,57 @@ void FVMSolver3D::step() {
         dt_ = config_.t_final - t_current_;
     }
 
+    // ================================================================
+    // STRANG SPLITTING: D^(dt/2) ∘ L^(dt) ∘ D^(dt/2)
+    // ================================================================
+    // Reference: OpenMHD glm_ss2.f90, Dedner et al. (2002)
+    //
+    // This implements operator splitting for GLM divergence cleaning:
+    // - D: Damping operator (exponential decay of ψ)
+    // - L: Hyperbolic operator (flux evolution via RK)
+    //
+    // The splitting is second-order accurate and unconditionally stable.
+    // ================================================================
+
+    // ========== GLM DAMPING: First half-step ==========
+    // Apply ψ *= exp(-0.5 × dt × ch/cr) to all cells
+    auto mhd = std::dynamic_pointer_cast<physics::AdvancedResistiveMHD3D>(physics_);
+    if (mhd) {
+        const int i_begin = grid_.i_begin();
+        const int i_end = grid_.i_end();
+        const int j_begin = grid_.j_begin();
+        const int j_end = grid_.j_end();
+        const int k_begin = grid_.k_begin();
+        const int k_end = grid_.k_end();
+        const int nvars = state_.nvars();
+
+        #pragma omp parallel
+        {
+            Eigen::VectorXd U(nvars);
+
+            #pragma omp for collapse(3)
+            for (int i = i_begin; i < i_end; i++) {
+                for (int j = j_begin; j < j_end; j++) {
+                    for (int k = k_begin; k < k_end; k++) {
+                        // Extract state vector at (i,j,k)
+                        for (int v = 0; v < nvars; v++) {
+                            U(v) = state_(v, i, j, k);
+                        }
+
+                        // Apply GLM damping
+                        mhd->apply_glm_damping(U, dt_, 0.5);
+
+                        // Write back
+                        for (int v = 0; v < nvars; v++) {
+                            state_(v, i, j, k) = U(v);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ========== MHD EVOLUTION: Full time step (RK2/RK3) ==========
     // Time integration using RHS callback
     auto rhs_func = [this](const StateField3D& U, StateField3D& dUdt) {
         this->compute_rhs();
@@ -144,6 +196,43 @@ void FVMSolver3D::step() {
     };
 
     time_integrator_->step(state_, dt_, rhs_func);
+
+    // ========== GLM DAMPING: Second half-step ==========
+    // Apply ψ *= exp(-0.5 × dt × ch/cr) to all cells
+    if (mhd) {
+        const int i_begin = grid_.i_begin();
+        const int i_end = grid_.i_end();
+        const int j_begin = grid_.j_begin();
+        const int j_end = grid_.j_end();
+        const int k_begin = grid_.k_begin();
+        const int k_end = grid_.k_end();
+        const int nvars = state_.nvars();
+
+        #pragma omp parallel
+        {
+            Eigen::VectorXd U(nvars);
+
+            #pragma omp for collapse(3)
+            for (int i = i_begin; i < i_end; i++) {
+                for (int j = j_begin; j < j_end; j++) {
+                    for (int k = k_begin; k < k_end; k++) {
+                        // Extract state vector at (i,j,k)
+                        for (int v = 0; v < nvars; v++) {
+                            U(v) = state_(v, i, j, k);
+                        }
+
+                        // Apply GLM damping
+                        mhd->apply_glm_damping(U, dt_, 0.5);
+
+                        // Write back
+                        for (int v = 0; v < nvars; v++) {
+                            state_(v, i, j, k) = U(v);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // Apply boundary conditions
     apply_boundary_conditions();

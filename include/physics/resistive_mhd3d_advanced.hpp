@@ -326,6 +326,23 @@ public:
     const GLMParameters& glm_parameters() const { return glm_params_; }
     void set_glm_parameters(const GLMParameters& glm) { glm_params_ = glm; }
 
+    // ========== GLM Divergence Cleaning ==========
+
+    /**
+     * Apply GLM divergence cleaning damping step (exponential decay).
+     * Implements: ψ *= exp(-factor × dt × ch/cr)
+     *
+     * This is the GLM damping operator from Dedner et al. (2002).
+     * Used in Strang splitting: D^(dt/2) ∘ L^(dt) ∘ D^(dt/2)
+     *
+     * Reference: OpenMHD glm_ss2.f90
+     *
+     * @param U Conservative state vector (modified in-place)
+     * @param dt Time step size
+     * @param factor Scaling factor (0.5 for half-step, 1.0 for full-step)
+     */
+    void apply_glm_damping(Eigen::VectorXd& U, double dt, double factor = 1.0) const;
+
     // ========== Stability/Debug ==========
 
     /**
