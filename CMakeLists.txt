@@ -16,7 +16,8 @@ endif()
 # Find Eigen3
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 
-# Find HDF5
+# Find HDF5 with MPI support
+set(HDF5_PREFER_PARALLEL TRUE)
 find_package(HDF5 REQUIRED COMPONENTS C)
 include_directories(${HDF5_INCLUDE_DIRS})
 
