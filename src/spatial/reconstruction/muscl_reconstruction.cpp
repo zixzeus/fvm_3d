@@ -123,6 +123,29 @@ void MUSCLReconstruction::reconstruct(
             V_R(var) = val_plus1 - 0.5 * slope_R;
         }
 
+        // ========== POSITIVITY-PRESERVING LIMITER (OpenMHD Style) ==========
+        // After reconstruction, ensure density and pressure remain positive.
+        // If not, reduce slopes to preserve positivity (fallback to first-order).
+        // This prevents artificial mass/energy injection in primitive_to_conservative.
+        // Reference: Waagan (2009) "A positive MUSCL-Hancock scheme for ideal MHD"
+
+        const double rho_floor = physics_->rho_floor();
+        const double p_floor = physics_->p_floor();
+
+        // Check and fix density (index 0)
+        if (V_L(0) < rho_floor || V_R(0) < rho_floor) {
+            // Fallback to first-order (zero slope) for this cell
+            V_L(0) = V_center(0);
+            V_R(0) = V_plus1(0);
+        }
+
+        // Check and fix pressure (index 4 for MHD/Euler)
+        if (num_vars_ >= 5 && (V_L(4) < p_floor || V_R(4) < p_floor)) {
+            // Fallback to first-order (zero slope) for this cell
+            V_L(4) = V_center(4);
+            V_R(4) = V_plus1(4);
+        }
+
         // Convert back to conservative form
         U_L = physics_->primitive_to_conservative(V_L);
         U_R = physics_->primitive_to_conservative(V_R);
