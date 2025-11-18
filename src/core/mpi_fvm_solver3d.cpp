@@ -315,13 +315,6 @@ void MPIFVMSolver3D::step() {
         }
     }
 
-    // ========== POSITIVITY LIMITER (OpenMHD Style) ==========
-    // OpenMHD approach: Floor values are applied only in Physics layer
-    // (conservative_to_primitive conversion) to prevent numerical errors
-    // during calculations (e.g., division by zero in sound speed).
-    // This avoids artificial energy injection from Solver-layer limiting.
-    // apply_positivity_limiter();  // Disabled - using Physics-layer floors only
-
     // Update time and step counter
     t_current_ += dt_;
     step_count_++;
@@ -763,99 +756,6 @@ double MPIFVMSolver3D::compute_max_div_B() const {
     }
 
     return max_div_B;
-}
-
-void MPIFVMSolver3D::apply_positivity_limiter() {
-    int nx = local_grid_->nx_local();
-    int ny = local_grid_->ny_local();
-    int nz = local_grid_->nz_local();
-    int ng = local_grid_->nghost();
-    int nvars = config_.num_vars;
-
-    // More physical floor values to reduce energy injection
-    // Higher floors mean fewer fixes and less artificial energy added
-    const double rho_floor = 0.01;   // 1% of typical density scale
-    const double p_floor = 0.001;    // Small but physical pressure floor
-
-    int local_num_fixes = 0;
-    double local_energy_added = 0.0;
-
-    Eigen::VectorXd U(nvars);
-    Eigen::VectorXd V(nvars);
-
-    for (int i = ng; i < nx + ng; i++) {
-        for (int j = ng; j < ny + ng; j++) {
-            for (int k = ng; k < nz + ng; k++) {
-                // Load conservative variables
-                for (int v = 0; v < nvars; v++) {
-                    U(v) = (*state_)(v, i, j, k);
-                }
-
-                // Store energy before limiting
-                double E_before = U(4);
-
-                // Convert to primitive to check positivity
-                V = physics_->conservative_to_primitive(U);
-
-                bool needs_fix = false;
-
-                // Check and fix density with gentler blending approach
-                // Instead of hard floor, blend towards floor to minimize mass injection
-                if (V(0) < rho_floor) {
-                    // Blend 50% old value with 50% floor
-                    V(0) = 0.5 * (V(0) + rho_floor);
-                    // Safety check - ensure we're above floor
-                    if (V(0) < rho_floor) {
-                        V(0) = rho_floor;
-                    }
-                    needs_fix = true;
-                }
-
-                // Check and fix pressure with very gentle approach
-                // Use 90% old value to minimize energy injection
-                if (nvars >= 5 && V(4) < p_floor) {
-                    double p_old = V(4);
-                    // Blend 90% old with 10% floor - minimizes energy injection
-                    V(4) = 0.9 * p_old + 0.1 * p_floor;
-                    // Safety check - allow lower floor for extreme cases
-                    if (V(4) < p_floor * 0.1) {
-                        V(4) = p_floor * 0.1;
-                    }
-                    needs_fix = true;
-                }
-
-                // If fixes were applied, convert back to conservative
-                if (needs_fix) {
-                    U = physics_->primitive_to_conservative(V);
-
-                    // Write back to state
-                    for (int v = 0; v < nvars; v++) {
-                        (*state_)(v, i, j, k) = U(v);
-                    }
-
-                    // Track energy injection
-                    double E_after = U(4);
-                    local_energy_added += (E_after - E_before);
-
-                    local_num_fixes++;
-                }
-            }
-        }
-    }
-
-    // Global reductions for diagnostics
-    int global_num_fixes = static_cast<int>(global_reduction_->global_sum(static_cast<double>(local_num_fixes)));
-    double global_energy_added = global_reduction_->global_sum(local_energy_added);
-
-    // Report if fixes were applied (rank 0 only, and only if verbose > 1)
-    // Reduced verbosity to avoid output spam - most users don't need this detail
-    if (global_num_fixes > 0 && config_.verbose > 1 && parallel::MPIUtils::is_root()) {
-        const auto& geom = local_grid_->geometry();
-        const double dV = geom.dx * geom.dy * geom.dz;
-        std::cout << "  [Positivity] Fixed " << global_num_fixes
-                  << " cells, ΔE = " << std::scientific << std::setprecision(2)
-                  << (global_energy_added * dV) << "\n";
-    }
 }
 
 void MPIFVMSolver3D::save_checkpoint(const std::string& filename, const std::string& description) {

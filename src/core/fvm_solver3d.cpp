@@ -234,13 +234,6 @@ void FVMSolver3D::step() {
         }
     }
 
-    // ========== POSITIVITY LIMITER (OpenMHD Style) ==========
-    // OpenMHD approach: Floor values are applied only in Physics layer
-    // (conservative_to_primitive conversion) to prevent numerical errors
-    // during calculations (e.g., division by zero in sound speed).
-    // This avoids artificial energy injection from Solver-layer limiting.
-    // apply_positivity_limiter();  // Disabled - using Physics-layer floors only
-
     // Apply boundary conditions
     apply_boundary_conditions();
 
@@ -636,92 +629,6 @@ double FVMSolver3D::compute_max_div_B() const {
     }
 
     return max_div_B;
-}
-
-void FVMSolver3D::apply_positivity_limiter() {
-    const int i_begin = grid_.i_begin();
-    const int i_end = grid_.i_end();
-    const int j_begin = grid_.j_begin();
-    const int j_end = grid_.j_end();
-    const int k_begin = grid_.k_begin();
-    const int k_end = grid_.k_end();
-    const int nvars = config_.num_vars;
-
-    // Density and pressure floors - use small but reasonable values
-    // Set based on expected minimum values in Harris sheet
-    const double rho_floor = 0.01;   // 1% of typical density
-    const double p_floor = 0.001;    // Small but physical
-
-    int num_fixes = 0;
-    double total_energy_added = 0.0;
-
-    #pragma omp parallel reduction(+:num_fixes,total_energy_added)
-    {
-        Eigen::VectorXd U(nvars);
-        Eigen::VectorXd V(nvars);
-
-        #pragma omp for collapse(3)
-        for (int i = i_begin; i < i_end; i++) {
-            for (int j = j_begin; j < j_end; j++) {
-                for (int k = k_begin; k < k_end; k++) {
-                    // Load conservative variables
-                    for (int v = 0; v < nvars; v++) {
-                        U(v) = state_(v, i, j, k);
-                    }
-
-                    // Store original energy for tracking
-                    double E_before = U(4);  // Total energy (conservative)
-
-                    // Convert to primitive to check positivity
-                    V = physics_->conservative_to_primitive(U);
-
-                    bool needs_fix = false;
-
-                    // Check density - use gentler approach
-                    if (V(0) < rho_floor) {
-                        // Gently push towards floor, not hard set
-                        V(0) = 0.5 * (V(0) + rho_floor);
-                        if (V(0) < rho_floor) V(0) = rho_floor;
-                        needs_fix = true;
-                    }
-
-                    // Check pressure - critical for energy conservation
-                    if (nvars >= 5 && V(4) < p_floor) {
-                        // Very gentle pressure fix to minimize energy injection
-                        double p_old = V(4);
-                        V(4) = 0.9 * p_old + 0.1 * p_floor;
-                        if (V(4) < p_floor * 0.1) V(4) = p_floor * 0.1;
-                        needs_fix = true;
-                    }
-
-                    // If fixes were applied, convert back to conservative
-                    if (needs_fix) {
-                        U = physics_->primitive_to_conservative(V);
-
-                        // Track energy added
-                        double E_after = U(4);
-                        total_energy_added += (E_after - E_before);
-
-                        // Write back to state
-                        for (int v = 0; v < nvars; v++) {
-                            state_(v, i, j, k) = U(v);
-                        }
-
-                        num_fixes++;
-                    }
-                }
-            }
-        }
-    }
-
-    // Report if fixes were applied
-    if (num_fixes > 0 && config_.verbose > 1) {  // Only verbose > 1
-        const auto& geom = grid_.geometry();
-        const double dV = geom.dx * geom.dy * geom.dz;
-        std::cout << "  [Positivity] Fixed " << num_fixes << " cells, ΔE = "
-                  << std::scientific << std::setprecision(2)
-                  << (total_energy_added * dV) << "\n";
-    }
 }
 
 void FVMSolver3D::print_progress() {

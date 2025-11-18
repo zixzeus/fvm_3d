@@ -232,12 +232,6 @@ private:
     void compute_statistics();
 
     /**
-     * Apply positivity-preserving limiter to ensure ρ > 0 and p > 0.
-     * Applied to local subdomain.
-     */
-    void apply_positivity_limiter();
-
-    /**
      * Compute maximum divergence of magnetic field on local subdomain.
      * Requires global reduction to get true maximum.
      */

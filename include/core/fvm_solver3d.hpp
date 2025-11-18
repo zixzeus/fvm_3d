@@ -192,12 +192,6 @@ private:
     void compute_statistics();
 
     /**
-     * Apply positivity-preserving limiter to ensure ρ > 0 and p > 0.
-     * This prevents negative density and pressure that can cause crashes.
-     */
-    void apply_positivity_limiter();
-
-    /**
      * Compute maximum divergence of magnetic field.
      */
     double compute_max_div_B() const;
