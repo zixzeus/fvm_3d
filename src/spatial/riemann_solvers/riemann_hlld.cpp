@@ -321,9 +321,14 @@ Eigen::VectorXd HLLDSolver::compute_state_L(
     double pt_L = p_L + 0.5 * B2_L;
     double pt_Lstar = p_m + 0.5 * B2_Lstar;
 
-    // Energy update (using total pressure)
-    double E_Lstar = U_L(4) + (S_L - u_L) * (rho_Lstar * S_M * S_M - U_L(1) * u_L +
-                              pt_Lstar - pt_L) / (S_L - S_M);
+    // Energy update with Poynting flux (Miyoshi & Kusano 2005, Eq. 31)
+    // Compute v·B terms for Poynting flux
+    double vdotB_L = u_L * B_n + v_L * By_L + w_L * Bz_L;
+    double vdotB_Lstar = S_M * B_n + v_Lstar * By_Lstar + w_Lstar * Bz_Lstar;
+
+    // Full HLLD energy formula including Poynting flux
+    double E_Lstar = ((S_L - u_L) * U_L(4) - pt_L * u_L + pt_Lstar * S_M +
+                      B_n * (vdotB_L - vdotB_Lstar)) / (S_L - S_M);
 
     U_star(4) = E_Lstar;
 
@@ -390,9 +395,14 @@ Eigen::VectorXd HLLDSolver::compute_state_R(
     double pt_R = p_R + 0.5 * B2_R;
     double pt_Rstar = p_m + 0.5 * B2_Rstar;
 
-    // Energy update (using total pressure)
-    double E_Rstar = U_R(4) + (S_R - u_R) * (rho_Rstar * S_M * S_M - U_R(1) * u_R +
-                              pt_Rstar - pt_R) / (S_R - S_M);
+    // Energy update with Poynting flux (Miyoshi & Kusano 2005, Eq. 31)
+    // Compute v·B terms for Poynting flux
+    double vdotB_R = u_R * B_n + v_R * By_R + w_R * Bz_R;
+    double vdotB_Rstar = S_M * B_n + v_Rstar * By_Rstar + w_Rstar * Bz_Rstar;
+
+    // Full HLLD energy formula including Poynting flux
+    double E_Rstar = ((S_R - u_R) * U_R(4) - pt_R * u_R + pt_Rstar * S_M +
+                      B_n * (vdotB_R - vdotB_Rstar)) / (S_R - S_M);
 
     U_star(4) = E_Rstar;
 
@@ -433,14 +443,21 @@ Eigen::VectorXd HLLDSolver::compute_central_state(
     // Averaged density
     double rho_central = sqrt_rho_L * sqrt_rho_R;
 
-    // Averaged tangential velocities
-    double v_central_t1 = w1 * v_Lstar_t1 + w2 * v_Rstar_t1;
-    double v_central_t2 = w1 * v_Lstar_t2 + w2 * v_Rstar_t2;
-
-    // Averaged tangential magnetic fields (with sign correction)
+    // Averaged tangential velocities (Miyoshi & Kusano 2005, Eq. 44)
     double sign_B = (B_x >= 0.0) ? 1.0 : -1.0;
-    double By_central = w1 * By_Lstar + w2 * By_Rstar + sign_B * w1 * w2 * (By_Rstar - By_Lstar);
-    double Bz_central = w1 * Bz_Lstar + w2 * Bz_Rstar + sign_B * w1 * w2 * (Bz_Rstar - Bz_Lstar);
+    double inv_wsum = 1.0 / wsum;
+
+    double v_central_t1 = w1 * v_Lstar_t1 + w2 * v_Rstar_t1 +
+                         sign_B * inv_wsum * (By_Rstar - By_Lstar);
+    double v_central_t2 = w1 * v_Lstar_t2 + w2 * v_Rstar_t2 +
+                         sign_B * inv_wsum * (Bz_Rstar - Bz_Lstar);
+
+    // Averaged tangential magnetic fields - CROSS averaging (Miyoshi & Kusano 2005, Eq. 43)
+    // Note: Left weight multiplies RIGHT magnetic field (and vice versa)
+    double By_central = w1 * By_Rstar + w2 * By_Lstar +
+                       sign_B * sqrt_rho_L * sqrt_rho_R * inv_wsum * (v_Rstar_t1 - v_Lstar_t1);
+    double Bz_central = w1 * Bz_Rstar + w2 * Bz_Lstar +
+                       sign_B * sqrt_rho_L * sqrt_rho_R * inv_wsum * (v_Rstar_t2 - v_Lstar_t2);
 
     // Assemble central state
     U_central(0) = rho_central;
@@ -451,9 +468,25 @@ Eigen::VectorXd HLLDSolver::compute_central_state(
     U_central(6) = By_central;
     U_central(7) = Bz_central;
 
-    // Energy (simplified)
-    double E_central = 0.5 * rho_central * S_M * S_M +
-                      0.5 * (By_central * By_central + Bz_central * Bz_central + B_x * B_x);
+    // Energy: internal + kinetic + magnetic
+    // Extract pressure from intermediate states and average
+    // For U*L and U*R, we can reconstruct pressure from total energy
+    // Simplified approach: use averaged energies from L* and R* states
+    double E_Lstar = U_Lstar(4);
+    double E_Rstar = U_Rstar(4);
+
+    // Roe-averaged energy as starting point
+    double E_avg = w1 * E_Lstar + w2 * E_Rstar;
+
+    // Apply Poynting flux correction for central state (Miyoshi Eq. 45)
+    // Correction term accounts for change in v·B across Alfvén waves
+    double vdotB_Lstar = S_M * B_x + v_Lstar_t1 * By_Lstar + v_Lstar_t2 * Bz_Lstar;
+    double vdotB_central = S_M * B_x + v_central_t1 * By_central + v_central_t2 * Bz_central;
+    double vdotB_Rstar = S_M * B_x + v_Rstar_t1 * By_Rstar + v_Rstar_t2 * Bz_Rstar;
+
+    double E_correction = sign_B * sqrt_rho_L * inv_wsum * (vdotB_Lstar - vdotB_central);
+    double E_central = E_avg - E_correction;
+
     U_central(4) = E_central;
 
     // Preserve GLM variable if present
