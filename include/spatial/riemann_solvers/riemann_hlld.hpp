@@ -71,19 +71,43 @@ private:
     ) const;
 
     /**
-     * Compute left middle state U_*L.
+     * Compute left intermediate state U_*L using full HLLD formula.
+     * Includes proper Alfvén wave handling.
      */
     Eigen::VectorXd compute_state_L(
         const Eigen::VectorXd& U_L, const Eigen::VectorXd& V_L,
-        double S_L, double S_M, double p_m, double B_x
+        const Eigen::VectorXd& U_hll, const Eigen::VectorXd& V_hll,
+        double S_L, double S_M, double p_m, double B_x,
+        double rho_Lstar
     ) const;
 
     /**
-     * Compute right middle state U_*R.
+     * Compute right intermediate state U_*R using full HLLD formula.
+     * Includes proper Alfvén wave handling.
      */
     Eigen::VectorXd compute_state_R(
         const Eigen::VectorXd& U_R, const Eigen::VectorXd& V_R,
-        double S_R, double S_M, double p_m, double B_x
+        const Eigen::VectorXd& U_hll, const Eigen::VectorXd& V_hll,
+        double S_R, double S_M, double p_m, double B_x,
+        double rho_Rstar
+    ) const;
+
+    /**
+     * Compute central region state U_** (between Alfvén waves).
+     * Uses Roe averaging for tangential components.
+     */
+    Eigen::VectorXd compute_central_state(
+        const Eigen::VectorXd& U_Lstar, const Eigen::VectorXd& U_Rstar,
+        const Eigen::VectorXd& V_Lstar, const Eigen::VectorXd& V_Rstar,
+        double S_M, double B_x, int direction
+    ) const;
+
+    /**
+     * Compute Alfvén wave speeds aL1 (= S_M - c_A) and aR1 (= S_M + c_A).
+     */
+    void compute_alfven_speeds(
+        double B_x, double rho_Lstar, double rho_Rstar,
+        double& aL1, double& aR1
     ) const;
 };
 
