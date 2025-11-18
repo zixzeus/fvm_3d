@@ -107,7 +107,7 @@ int main() {
     config.bc_y = true;  // Transmissive in Y
     config.bc_z = true;  // Transmissive in Z
 
-    config.cfl = 0.4;
+    config.cfl = 0.3;  // Reduced from 0.4 to test stability
     config.t_final = 0.2;      // Run to t=0.2 for solution structure
     config.num_steps = 5000;
     config.output_interval = 50;

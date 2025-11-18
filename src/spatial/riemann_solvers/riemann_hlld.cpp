@@ -79,23 +79,16 @@ Eigen::VectorXd HLLDSolver::solve(
         return rotate_from_normal(F_R, direction);
     }
 
-    // Step 2: Compute HLL intermediate state
+    // Step 2: Compute HLL intermediate state (FULLY CONSERVATIVE)
+    // HLL formula: U_hll = (S_R * U_L - S_L * U_R + F_L - F_R) / (S_R - S_L)
     double inv_denom = 1.0 / (S_R - S_L);
     Eigen::VectorXd U_hll(nvars);
     Eigen::VectorXd V_hll(nvars);
 
-    U_hll = inv_denom * (S_R * UL_rot - S_L * UR_rot - (F_L - F_R)) / 1.0;
-    // Note: For conservative form: U_hll = (S_R * U_R - S_L * U_L - F_R + F_L) / (S_R - S_L)
-    // But we need to be careful with the formula
+    // Compute HLL state entirely in conservative variables
+    U_hll = inv_denom * (S_R * UL_rot - S_L * UR_rot + F_L - F_R);
 
-    // Better formulation
-    for (int i = 0; i < nvars; i++) {
-        if (i == 0) {  // density uses primitive
-            U_hll(i) = inv_denom * (S_R * VR_rot(i) - S_L * VL_rot(i) - F_R(i) + F_L(i));
-        } else {
-            U_hll(i) = inv_denom * (S_R * UL_rot(i) - S_L * UR_rot(i) - (F_L(i) - F_R(i)));
-        }
-    }
+    // Convert HLL state to primitive for later use
     V_hll = mhd_->conservative_to_primitive(U_hll);
 
     // Step 3: Contact velocity from HLL state
