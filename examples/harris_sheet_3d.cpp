@@ -62,7 +62,7 @@ int main(int argc, char* argv[]) {
     // Numerical methods
     config.flux_calculator = "hlld";         // Full HLLD for MHD
     config.reconstruction = "muscl";         // Second-order MUSCL
-    config.reconstruction_limiter = "van_leer";  // TVD limiter
+    config.reconstruction_limiter = "minmod";  // TVD limiter
     config.time_integrator = "rk2";          // Second-order TVD RK
 
     // Boundary conditions: periodic in x, y, z
@@ -72,7 +72,7 @@ int main(int argc, char* argv[]) {
     config.bc_z = "periodic";
 
     // Time stepping
-    config.cfl = 0.4;
+    config.cfl = 0.3;
     config.t_final = 50.0;     // Final time (Alfvén time ~ 10)
     config.num_steps = 1000000; // Large number, actual termination by t_final
     config.output_interval = 50;

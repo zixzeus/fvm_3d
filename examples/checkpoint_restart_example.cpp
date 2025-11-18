@@ -64,7 +64,7 @@ int main() {
 
     config.flux_calculator = "hllc";
     config.reconstruction = "muscl";
-    config.reconstruction_limiter = "van_leer";
+    config.reconstruction_limiter = "minmod";
     config.time_integrator = "rk2";
     config.boundary_condition = "transmissive";
     config.bc_x = true;
