@@ -318,16 +318,19 @@ Eigen::VectorXd HLLDSolver::compute_state_L(
     // Total pressure including magnetic contribution
     double B2_L = By_L * By_L + Bz_L * Bz_L + B_n * B_n;
     double B2_Lstar = By_Lstar * By_Lstar + Bz_Lstar * Bz_Lstar + B_n * B_n;
+    double B2_hll = By_hll * By_hll + Bz_hll * Bz_hll + B_n * B_n;
     double pt_L = p_L + 0.5 * B2_L;
-    double pt_Lstar = p_m + 0.5 * B2_Lstar;
+    double pt_hll = p_m + 0.5 * B2_hll;  // ← Use HLL state total pressure (OpenMHD correction)
 
     // Energy update with Poynting flux (Miyoshi & Kusano 2005, Eq. 31)
     // Compute v·B terms for Poynting flux
     double vdotB_L = u_L * B_n + v_L * By_L + w_L * Bz_L;
     double vdotB_Lstar = S_M * B_n + v_Lstar * By_Lstar + w_Lstar * Bz_Lstar;
 
-    // Full HLLD energy formula including Poynting flux
-    double E_Lstar = ((S_L - u_L) * U_L(4) - pt_L * u_L + pt_Lstar * S_M +
+    // Full HLLD energy formula including Poynting flux (OpenMHD-corrected)
+    // Key fix: Use pt_hll (HLL state) instead of pt_Lstar (intermediate state)
+    // This ensures energy conservation across the Riemann fan
+    double E_Lstar = ((S_L - u_L) * U_L(4) - pt_L * u_L + pt_hll * S_M +
                       B_n * (vdotB_L - vdotB_Lstar)) / (S_L - S_M);
 
     U_star(4) = E_Lstar;
@@ -392,16 +395,19 @@ Eigen::VectorXd HLLDSolver::compute_state_R(
     // Total pressure including magnetic contribution
     double B2_R = By_R * By_R + Bz_R * Bz_R + B_n * B_n;
     double B2_Rstar = By_Rstar * By_Rstar + Bz_Rstar * Bz_Rstar + B_n * B_n;
+    double B2_hll = V_hll(5)*V_hll(5) + V_hll(6)*V_hll(6) + V_hll(7)*V_hll(7);
     double pt_R = p_R + 0.5 * B2_R;
-    double pt_Rstar = p_m + 0.5 * B2_Rstar;
+    double pt_hll = p_m + 0.5 * B2_hll;  // ← Use HLL state total pressure (OpenMHD correction)
 
     // Energy update with Poynting flux (Miyoshi & Kusano 2005, Eq. 31)
     // Compute v·B terms for Poynting flux
     double vdotB_R = u_R * B_n + v_R * By_R + w_R * Bz_R;
     double vdotB_Rstar = S_M * B_n + v_Rstar * By_Rstar + w_Rstar * Bz_Rstar;
 
-    // Full HLLD energy formula including Poynting flux
-    double E_Rstar = ((S_R - u_R) * U_R(4) - pt_R * u_R + pt_Rstar * S_M +
+    // Full HLLD energy formula including Poynting flux (OpenMHD-corrected)
+    // Key fix: Use pt_hll (HLL state) instead of pt_Rstar (intermediate state)
+    // This ensures energy conservation across the Riemann fan
+    double E_Rstar = ((S_R - u_R) * U_R(4) - pt_R * u_R + pt_hll * S_M +
                       B_n * (vdotB_R - vdotB_Rstar)) / (S_R - S_M);
 
     U_star(4) = E_Rstar;
