@@ -370,10 +370,17 @@ Eigen::VectorXd AdvancedResistiveMHD3D::harris_sheet_initial(
     double L = harris.L_sheet;
     double y_norm = y / L;
 
-    // Density: ρ = ρ₀(1 + (1/β - 1)sech²(y))
+    // Density: For isothermal Harris sheet with modified pressure profile
+    // Using ρ ∝ p to maintain thermal equilibrium
+    // At y=0: ρ₀, p₀ = (β+1)B₀²/(2μ₀)
+    // At y→∞: ρ_∞, p_∞ = βB₀²/(2μ₀)
+    // So: ρ_∞/ρ₀ = p_∞/p₀ = β/(β+1)
+    //
+    // For simplicity, use constant density (realistic for thin current sheets):
     double sech_y = 1.0 / std::cosh(y_norm);
     double sech_y_sq = sech_y * sech_y;
-    double rho = harris.n0 * (1.0 + (1.0/harris.beta - 1.0) * sech_y_sq);
+    // Density enhancement in current sheet (optional):
+    double rho = harris.n0 * (1.0 + 0.5 * sech_y_sq);  // Modest enhancement
     rho = std::max(rho, RHO_FLOOR);
 
     // Magnetic field: Bx = B₀·tanh(y/L)
@@ -384,12 +391,18 @@ Eigen::VectorXd AdvancedResistiveMHD3D::harris_sheet_initial(
 
     // Pressure balance for Harris sheet:
     // Total pressure p_tot = p + B²/(2μ₀) must be constant
-    // At y=0: Bx=0, so p(0) = p_tot
-    // For beta (plasma beta): beta = 2μ₀p(0)/B₀²
-    // Therefore: p_tot = beta·B₀²/(2μ₀)
-    double p_total = harris.beta * harris.B0 * harris.B0 / (2.0 * MU0);
+    // At y=0: Bx=0, p(0) = p₀
+    // At y→∞: Bx→B₀, p(∞) = p_∞
+    // Require: p₀ = p_∞ + B₀²/(2μ₀)
+    //
+    // Define beta as plasma beta at y→∞: β = 2μ₀p_∞/B₀²
+    // Then: p₀ = βB₀²/(2μ₀) + B₀²/(2μ₀) = (β+1)B₀²/(2μ₀)
+    // And: p(y) = p₀ - Bx²/(2μ₀) = [(β+1) - tanh²(y/L)]·B₀²/(2μ₀)
+    //
+    // This ensures p(y) > 0 everywhere for any β > 0.
+    double p0 = (harris.beta + 1.0) * harris.B0 * harris.B0 / (2.0 * MU0);
     double B_pressure = 0.5 * Bx * Bx / MU0;
-    double p = p_total - B_pressure;
+    double p = p0 - B_pressure;
     p = std::max(p, P_FLOOR);
 
     // Add small perturbations to trigger reconnection (m=1 mode)
