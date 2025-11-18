@@ -126,6 +126,13 @@ target_link_libraries(vtk_visualization_example fvm3d_lib Eigen3::Eigen ${HDF5_C
 add_executable(mpi_vtk_visualization_example examples/mpi_vtk_visualization_example.cpp)
 target_link_libraries(mpi_vtk_visualization_example fvm3d_lib Eigen3::Eigen ${HDF5_C_LIBRARIES} MPI::MPI_CXX)
 
+# MHD benchmark tests
+add_executable(brio_wu_shock_tube examples/brio_wu_shock_tube.cpp)
+target_link_libraries(brio_wu_shock_tube fvm3d_lib Eigen3::Eigen ${HDF5_C_LIBRARIES} MPI::MPI_CXX)
+
+add_executable(orszag_tang_vortex examples/orszag_tang_vortex.cpp)
+target_link_libraries(orszag_tang_vortex fvm3d_lib Eigen3::Eigen ${HDF5_C_LIBRARIES} MPI::MPI_CXX)
+
 # Print build information
 message(STATUS "FVM3D Build Configuration:")
 message(STATUS "  Build type: ${CMAKE_BUILD_TYPE}")
