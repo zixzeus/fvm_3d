@@ -433,33 +433,51 @@ Eigen::VectorXd HLLDSolver::compute_central_state(
     double Bz_Lstar = V_Lstar(7);
     double Bz_Rstar = V_Rstar(7);
 
-    // Roe averaging for central state
+    // Roe averaging weights (consistent with OpenMHD)
     double sqrt_rho_L = std::sqrt(rho_Lstar);
     double sqrt_rho_R = std::sqrt(rho_Rstar);
     double wsum = sqrt_rho_L + sqrt_rho_R;
     double w1 = sqrt_rho_L / wsum;
     double w2 = sqrt_rho_R / wsum;
 
-    // Averaged density
-    double rho_central = sqrt_rho_L * sqrt_rho_R;
-
-    // Averaged tangential velocities (Miyoshi & Kusano 2005, Eq. 44)
+    // Sign of normal magnetic field
     double sign_B = (B_x >= 0.0) ? 1.0 : -1.0;
     double inv_wsum = 1.0 / wsum;
 
-    double v_central_t1 = w1 * v_Lstar_t1 + w2 * v_Rstar_t1 +
-                         sign_B * inv_wsum * (By_Rstar - By_Lstar);
-    double v_central_t2 = w1 * v_Lstar_t2 + w2 * v_Rstar_t2 +
-                         sign_B * inv_wsum * (Bz_Rstar - Bz_Lstar);
+    // ========== CENTRAL STATE DENSITY (OpenMHD formula) ==========
+    // Choose single-sided density based on contact discontinuity velocity
+    // This ensures proper entropy and energy structure
+    double rho_central;
+    if (S_M >= 0.0) {
+        rho_central = rho_Lstar;
+    } else {
+        rho_central = rho_Rstar;
+    }
 
-    // Averaged tangential magnetic fields - CROSS averaging (Miyoshi & Kusano 2005, Eq. 43)
-    // Note: Left weight multiplies RIGHT magnetic field (and vice versa)
-    double By_central = w1 * By_Rstar + w2 * By_Lstar +
+    // ========== CENTRAL STATE VELOCITY (Miyoshi & Kusano 2005, Eq. 44) ==========
+    // Roe-weighted average with magnetic field correction
+    // Note: the magnetic field difference term uses CONSERVED variables (U not V)
+    double By_Lstar_cons = U_Lstar(6);  // Conservative: By without density factor
+    double By_Rstar_cons = U_Rstar(6);
+    double Bz_Lstar_cons = U_Lstar(7);  // Conservative: Bz without density factor
+    double Bz_Rstar_cons = U_Rstar(7);
+
+    // Since fvm_3d stores B directly (not B/rho), we use them as-is
+    // In OpenMHD: at1 = f1 * ( roLs*vt1L + roRs*vt1R + (UR1(bt1)-UL1(bt1))*f2 )
+    double v_central_t1 = w1 * v_Lstar_t1 + w2 * v_Rstar_t1 +
+                         sign_B * inv_wsum * (By_Rstar_cons - By_Lstar_cons);
+    double v_central_t2 = w1 * v_Lstar_t2 + w2 * v_Rstar_t2 +
+                         sign_B * inv_wsum * (Bz_Rstar_cons - Bz_Lstar_cons);
+
+    // ========== CENTRAL STATE MAGNETIC FIELD (Miyoshi & Kusano 2005, Eq. 43) ==========
+    // Cross-weighted average with velocity correction
+    // U2(bt1) = f1 * ( roLs*UR1(bt1) + roRs*UL1(bt1) + roLs*roRs*( vt1R-vt1L )*f2 )
+    double By_central = w1 * By_Rstar_cons + w2 * By_Lstar_cons +
                        sign_B * sqrt_rho_L * sqrt_rho_R * inv_wsum * (v_Rstar_t1 - v_Lstar_t1);
-    double Bz_central = w1 * Bz_Rstar + w2 * Bz_Lstar +
+    double Bz_central = w1 * Bz_Rstar_cons + w2 * Bz_Lstar_cons +
                        sign_B * sqrt_rho_L * sqrt_rho_R * inv_wsum * (v_Rstar_t2 - v_Lstar_t2);
 
-    // Assemble central state
+    // ========== ASSEMBLE CENTRAL STATE ==========
     U_central(0) = rho_central;
     U_central(1) = rho_central * S_M;
     U_central(2) = rho_central * v_central_t1;
@@ -468,24 +486,31 @@ Eigen::VectorXd HLLDSolver::compute_central_state(
     U_central(6) = By_central;
     U_central(7) = Bz_central;
 
-    // Energy: internal + kinetic + magnetic
-    // Extract pressure from intermediate states and average
-    // For U*L and U*R, we can reconstruct pressure from total energy
-    // Simplified approach: use averaged energies from L* and R* states
-    double E_Lstar = U_Lstar(4);
-    double E_Rstar = U_Rstar(4);
+    // ========== CENTRAL STATE ENERGY (OpenMHD formula) ==========
+    // Key insight: energy should be SINGLE-SIDED with Poynting flux correction
+    // This ensures proper entropy and internal energy structure
+    //
+    // From OpenMHD (lines 560-561, 575-576):
+    // if (aM >= 0): U2(en) = UL1(en) - sqrt(roL) * (...) * sign(Bn)
+    // else:         U2(en) = UR1(en) + sqrt(roR) * (...) * sign(Bn)
 
-    // Roe-averaged energy as starting point
-    double E_avg = w1 * E_Lstar + w2 * E_Rstar;
-
-    // Apply Poynting flux correction for central state (Miyoshi Eq. 45)
-    // Correction term accounts for change in v·B across Alfvén waves
-    double vdotB_Lstar = S_M * B_x + v_Lstar_t1 * By_Lstar + v_Lstar_t2 * Bz_Lstar;
-    double vdotB_central = S_M * B_x + v_central_t1 * By_central + v_central_t2 * Bz_central;
-    double vdotB_Rstar = S_M * B_x + v_Rstar_t1 * By_Rstar + v_Rstar_t2 * Bz_Rstar;
-
-    double E_correction = sign_B * sqrt_rho_L * inv_wsum * (vdotB_Lstar - vdotB_central);
-    double E_central = E_avg - E_correction;
+    double E_central;
+    if (S_M >= 0.0) {
+        // Use left intermediate state as base
+        double E_Lstar = U_Lstar(4);
+        // Poynting flux correction: v·B change from L* to central
+        // Correction = sqrt(rho_Lstar) * (v_Lstar·B_Lstar - v_central·B_central) * sign(B_x)
+        double vdotB_Lstar = v_Lstar_t1 * By_Lstar_cons + v_Lstar_t2 * Bz_Lstar_cons;
+        double vdotB_central = v_central_t1 * By_central + v_central_t2 * Bz_central;
+        E_central = E_Lstar - sqrt_rho_L * (vdotB_Lstar - vdotB_central) * sign_B;
+    } else {
+        // Use right intermediate state as base
+        double E_Rstar = U_Rstar(4);
+        // Poynting flux correction: v·B change from R* to central
+        double vdotB_Rstar = v_Rstar_t1 * By_Rstar_cons + v_Rstar_t2 * Bz_Rstar_cons;
+        double vdotB_central = v_central_t1 * By_central + v_central_t2 * Bz_central;
+        E_central = E_Rstar + sqrt_rho_R * (vdotB_Rstar - vdotB_central) * sign_B;
+    }
 
     U_central(4) = E_central;
 
