@@ -234,9 +234,12 @@ void FVMSolver3D::step() {
         }
     }
 
-    // ========== POSITIVITY LIMITER ==========
-    // Ensure ρ > 0 and p > 0 after time evolution
-    apply_positivity_limiter();
+    // ========== POSITIVITY LIMITER (OpenMHD Style) ==========
+    // OpenMHD approach: Floor values are applied only in Physics layer
+    // (conservative_to_primitive conversion) to prevent numerical errors
+    // during calculations (e.g., division by zero in sound speed).
+    // This avoids artificial energy injection from Solver-layer limiting.
+    // apply_positivity_limiter();  // Disabled - using Physics-layer floors only
 
     // Apply boundary conditions
     apply_boundary_conditions();
