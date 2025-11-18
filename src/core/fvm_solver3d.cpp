@@ -644,13 +644,15 @@ void FVMSolver3D::apply_positivity_limiter() {
     const int k_end = grid_.k_end();
     const int nvars = config_.num_vars;
 
-    // Density and pressure floors
-    const double rho_floor = 1.0e-10;
-    const double p_floor = 1.0e-10;
+    // Density and pressure floors - use small but reasonable values
+    // Set based on expected minimum values in Harris sheet
+    const double rho_floor = 0.01;   // 1% of typical density
+    const double p_floor = 0.001;    // Small but physical
 
     int num_fixes = 0;
+    double total_energy_added = 0.0;
 
-    #pragma omp parallel reduction(+:num_fixes)
+    #pragma omp parallel reduction(+:num_fixes,total_energy_added)
     {
         Eigen::VectorXd U(nvars);
         Eigen::VectorXd V(nvars);
@@ -664,26 +666,38 @@ void FVMSolver3D::apply_positivity_limiter() {
                         U(v) = state_(v, i, j, k);
                     }
 
+                    // Store original energy for tracking
+                    double E_before = U(4);  // Total energy (conservative)
+
                     // Convert to primitive to check positivity
                     V = physics_->conservative_to_primitive(U);
 
                     bool needs_fix = false;
 
-                    // Check density
+                    // Check density - use gentler approach
                     if (V(0) < rho_floor) {
-                        V(0) = rho_floor;
+                        // Gently push towards floor, not hard set
+                        V(0) = 0.5 * (V(0) + rho_floor);
+                        if (V(0) < rho_floor) V(0) = rho_floor;
                         needs_fix = true;
                     }
 
-                    // Check pressure (index 4 for MHD/Euler)
+                    // Check pressure - critical for energy conservation
                     if (nvars >= 5 && V(4) < p_floor) {
-                        V(4) = p_floor;
+                        // Very gentle pressure fix to minimize energy injection
+                        double p_old = V(4);
+                        V(4) = 0.9 * p_old + 0.1 * p_floor;
+                        if (V(4) < p_floor * 0.1) V(4) = p_floor * 0.1;
                         needs_fix = true;
                     }
 
                     // If fixes were applied, convert back to conservative
                     if (needs_fix) {
                         U = physics_->primitive_to_conservative(V);
+
+                        // Track energy added
+                        double E_after = U(4);
+                        total_energy_added += (E_after - E_before);
 
                         // Write back to state
                         for (int v = 0; v < nvars; v++) {
@@ -698,8 +712,12 @@ void FVMSolver3D::apply_positivity_limiter() {
     }
 
     // Report if fixes were applied
-    if (num_fixes > 0 && config_.verbose > 0) {
-        std::cout << "  [Positivity limiter] Fixed " << num_fixes << " cells\n";
+    if (num_fixes > 0 && config_.verbose > 1) {  // Only verbose > 1
+        const auto& geom = grid_.geometry();
+        const double dV = geom.dx * geom.dy * geom.dz;
+        std::cout << "  [Positivity] Fixed " << num_fixes << " cells, ΔE = "
+                  << std::scientific << std::setprecision(2)
+                  << (total_energy_added * dV) << "\n";
     }
 }
 
