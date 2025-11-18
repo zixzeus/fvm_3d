@@ -35,39 +35,54 @@ public:
     ) const = 0;
 
     /**
-     * Get maximum wave speed for CFL condition.
-     */
-    virtual double max_wave_speed(
-        const Eigen::VectorXd& U_L,
-        const Eigen::VectorXd& U_R,
-        int direction
-    ) const = 0;
-
-    /**
      * Get the name of the Riemann solver.
      */
     virtual std::string name() const = 0;
 
     virtual int num_variables() const { return physics_->num_variables(); }
 
+    /**
+     * Estimate left and right wave speeds using Davis estimates.
+     *
+     * CRITICAL FIX: Uses asymmetric wave speed estimates that account for
+     * flow velocity asymmetry. Previous implementations assuming symmetric waves
+     * (s_left = -s_right) caused excessive dissipation or instability.
+     *
+     * @param U_L: Left conservative state
+     * @param U_R: Right conservative state
+     * @param direction: Direction (0=x, 1=y, 2=z)
+     * @return Pair of (left_wave_speed, right_wave_speed)
+     */
+    std::pair<double, double> estimate_wave_speeds(
+        const Eigen::VectorXd& U_L,
+        const Eigen::VectorXd& U_R,
+        int direction
+    ) const {
+        // Convert to primitive variables
+        Eigen::VectorXd V_L = physics_->conservative_to_primitive(U_L);
+        Eigen::VectorXd V_R = physics_->conservative_to_primitive(U_R);
+
+        // Extract velocity in normal direction
+        double u_L = V_L(direction + 1);
+        double u_R = V_R(direction + 1);
+
+        // Get characteristic wave speeds using physics object
+        // max_wave_speed returns |u_n| + c, so we extract c by subtracting |u_n|
+        double max_speed_L = physics_->max_wave_speed(U_L, direction);
+        double max_speed_R = physics_->max_wave_speed(U_R, direction);
+
+        double c_L = max_speed_L - std::abs(u_L);
+        double c_R = max_speed_R - std::abs(u_R);
+
+        // Davis estimates (standard for Riemann solvers)
+        double s_left = std::min(u_L - c_L, u_R - c_R);
+        double s_right = std::max(u_L + c_L, u_R + c_R);
+
+        return {s_left, s_right};
+    }
+
 protected:
     std::shared_ptr<physics::PhysicsBase> physics_;  ///< Physics object for constants and methods
-
-    /**
-     * Extract primitive variables from conservative variables.
-     * Uses physics object's conversion method.
-     */
-    void conservative_to_primitive(
-        const Eigen::VectorXd& U,
-        double& rho, double& u, double& v, double& w, double& p
-    ) const {
-        Eigen::VectorXd V = physics_->conservative_to_primitive(U);
-        rho = V(0);
-        u = V(1);
-        v = V(2);
-        w = V(3);
-        p = V(4);
-    }
 
     /**
      * Compute speed of sound.
@@ -81,14 +96,6 @@ protected:
         rho = std::max(rho, rho_floor);
         p = std::max(p, p_floor);
         return std::sqrt(gamma * p / rho);
-    }
-
-    /**
-     * Extract velocity component in a given direction.
-     */
-    double velocity_in_direction(const Eigen::VectorXd& U, int direction) const {
-        double rho = std::max(U(0), physics_->rho_floor());
-        return U(direction + 1) / rho;
     }
 };
 

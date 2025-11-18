@@ -55,8 +55,9 @@ double RiemannFlux::compute_max_wave_speed(
     const physics::PhysicsBase& physics,
     int direction
 ) const {
-    // Use internal Riemann solver to compute max wave speed
-    return riemann_solver_->max_wave_speed(U_L, U_R, direction);
+    // Use internal Riemann solver to estimate wave speeds
+    auto [s_left, s_right] = riemann_solver_->estimate_wave_speeds(U_L, U_R, direction);
+    return std::max(std::abs(s_left), std::abs(s_right));
 }
 
 bool RiemannFlux::is_physics_agnostic() const {

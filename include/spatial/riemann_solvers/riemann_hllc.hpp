@@ -31,30 +31,9 @@ public:
         int direction
     ) const override;
 
-    double max_wave_speed(
-        const Eigen::VectorXd& U_L,
-        const Eigen::VectorXd& U_R,
-        int direction
-    ) const override;
-
     std::string name() const override { return "HLLC"; }
 
 private:
-    /**
-     * Estimate left and right wave speeds.
-     */
-    double estimate_s_left(
-        const Eigen::VectorXd& U_L,
-        const Eigen::VectorXd& U_R,
-        int direction
-    ) const;
-
-    double estimate_s_right(
-        const Eigen::VectorXd& U_L,
-        const Eigen::VectorXd& U_R,
-        int direction
-    ) const;
-
     /**
      * Estimate contact discontinuity speed and middle pressure.
      * Uses Roe-type averaging formulas.

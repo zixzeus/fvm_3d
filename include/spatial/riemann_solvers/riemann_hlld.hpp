@@ -38,11 +38,6 @@ public:
     ) const override;
 
     /**
-     * Get maximum wave speed.
-     */
-    double max_wave_speed(const Eigen::VectorXd& U_L, const Eigen::VectorXd& U_R, int direction) const override;
-
-    /**
      * Get solver name.
      */
     std::string name() const override { return "HLLD"; }
@@ -59,6 +54,37 @@ private:
      * Rotate state back from normal direction.
      */
     Eigen::VectorXd rotate_from_normal(const Eigen::VectorXd& U, int direction) const;
+
+    /**
+     * Estimate contact discontinuity speed using Roe averaging.
+     */
+    double estimate_s_contact(
+        double rho_L, double u_L, double p_L, double S_L,
+        double rho_R, double u_R, double p_R, double S_R
+    ) const;
+
+    /**
+     * Estimate middle pressure using Roe-type averaging.
+     */
+    double estimate_p_middle(
+        const Eigen::VectorXd& V_L, const Eigen::VectorXd& V_R
+    ) const;
+
+    /**
+     * Compute left middle state U_*L.
+     */
+    Eigen::VectorXd compute_state_L(
+        const Eigen::VectorXd& U_L, const Eigen::VectorXd& V_L,
+        double S_L, double S_M, double p_m, double B_x
+    ) const;
+
+    /**
+     * Compute right middle state U_*R.
+     */
+    Eigen::VectorXd compute_state_R(
+        const Eigen::VectorXd& U_R, const Eigen::VectorXd& V_R,
+        double S_R, double S_M, double p_m, double B_x
+    ) const;
 };
 
 } // namespace fvm3d::spatial
